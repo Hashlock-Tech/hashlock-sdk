@@ -25,7 +25,7 @@ import type {
 } from './types.js';
 
 /** Mainnet endpoint */
-export const MAINNET_ENDPOINT = 'http://142.93.106.129/graphql';
+export const MAINNET_ENDPOINT = 'http://142.93.106.129/api/graphql';
 
 /**
  * HashLock SDK — TypeScript client for HashLock OTC trading platform.
