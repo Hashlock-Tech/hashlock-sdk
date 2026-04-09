@@ -93,7 +93,7 @@ export interface HTLC {
   timelock: number | null;
   amount: string | null;
   txHash: string | null;
-  chainType: string | null;
+  chainId: number | null;
   preimage: string | null;
 }
 

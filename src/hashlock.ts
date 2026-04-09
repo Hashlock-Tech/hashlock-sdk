@@ -351,8 +351,8 @@ export class HashLock {
       query HTLCStatus($tradeId: ID!) {
         htlcStatus(tradeId: $tradeId) {
           tradeId status
-          initiatorHTLC { id tradeId role status contractAddress hashlock timelock amount txHash chainType }
-          counterpartyHTLC { id tradeId role status contractAddress hashlock timelock amount txHash chainType }
+          initiatorHTLC { id tradeId role status contractAddress hashlock timelock amount txHash chainId }
+          counterpartyHTLC { id tradeId role status contractAddress hashlock timelock amount txHash chainId }
         }
       }
     `, { tradeId });
