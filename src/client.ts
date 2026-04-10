@@ -62,7 +62,7 @@ export class GraphQLClient {
 
   private async execute<T>(
     query: string,
-    variables: Record<string, unknown> | undefined,
+    variables: Record<string, unknown> | object | undefined,
     retryOn5xx: boolean,
   ): Promise<T> {
     let lastError: Error | undefined;
