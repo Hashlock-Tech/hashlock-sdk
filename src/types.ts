@@ -1,3 +1,9 @@
+import type {
+  PrincipalAttestation,
+  AgentInstance,
+  KycTier,
+} from './principal.js';
+
 // ─── Enums ───────────────────────────────────────────────────
 
 export type Side = 'BUY' | 'SELL';
@@ -53,6 +59,12 @@ export interface RFQ {
   createdAt: string;
   quotesCount: number | null;
   quotes: Quote[] | null;
+  /** EXPERIMENTAL: tier the creator attested to (visible, non-leaky) */
+  attestationTier?: KycTier | null;
+  /** EXPERIMENTAL: rotating pseudonym of the creator (blind identity) */
+  attestationBlindId?: string | null;
+  /** EXPERIMENTAL: minimum KYC tier the creator wants in a counterparty */
+  minCounterpartyTier?: KycTier | null;
 }
 
 export interface Quote {
@@ -67,6 +79,10 @@ export interface Quote {
   deliveryDelayHours: number | null;
   collateralBtcSats: string | null;
   isCollateralBacked: boolean;
+  /** EXPERIMENTAL: tier the market maker attested to */
+  attestationTier?: KycTier | null;
+  /** EXPERIMENTAL: blind identity of the market maker */
+  attestationBlindId?: string | null;
 }
 
 export interface Trade {
@@ -81,6 +97,10 @@ export interface Trade {
   price: string;
   status: TradeStatus;
   createdAt: string;
+  /** EXPERIMENTAL: initiator's attested compliance tier */
+  initiatorAttestationTier?: KycTier | null;
+  /** EXPERIMENTAL: counterparty's attested compliance tier */
+  counterpartyAttestationTier?: KycTier | null;
 }
 
 export interface HTLC {
@@ -119,6 +139,18 @@ export interface CreateRFQInput {
   expiresIn?: number;
   /** Hide counterparty identity in blind auction mode */
   isBlind?: boolean;
+  /** EXPERIMENTAL — Principal attestation for agent / institution
+   *  flows. The shape is accepted by the SDK today but is not yet
+   *  sent to the Cayman backend. Wire-through will land in a later
+   *  release once the backend accepts PrincipalAttestationInput. */
+  attestation?: PrincipalAttestation;
+  /** EXPERIMENTAL — Agent instance metadata. See `attestation`. */
+  agentInstance?: AgentInstance;
+  /** EXPERIMENTAL — Minimum KYC tier the counterparty must attest to. */
+  minCounterpartyTier?: KycTier;
+  /** EXPERIMENTAL — Hide blind identity in the solver proof. Requires
+   *  `isBlind: true` or a blind auction context. */
+  hideIdentity?: boolean;
 }
 
 export interface SubmitQuoteInput {
@@ -130,6 +162,12 @@ export interface SubmitQuoteInput {
   amount: string;
   /** Expiration time in seconds */
   expiresIn?: number;
+  /** EXPERIMENTAL — Market maker's principal attestation. */
+  attestation?: PrincipalAttestation;
+  /** EXPERIMENTAL — Agent instance metadata. */
+  agentInstance?: AgentInstance;
+  /** EXPERIMENTAL — Hide blind identity from the RFQ creator. */
+  hideIdentity?: boolean;
 }
 
 export interface FundHTLCInput {
@@ -155,6 +193,10 @@ export interface FundHTLCInput {
   refundTxHex?: string;
   /** Preimage for initiator (kept encrypted server-side) */
   preimage?: string;
+  /** EXPERIMENTAL — Principal attestation of the funding party. */
+  attestation?: PrincipalAttestation;
+  /** EXPERIMENTAL — Agent instance metadata. */
+  agentInstance?: AgentInstance;
 }
 
 export interface ClaimHTLCInput {

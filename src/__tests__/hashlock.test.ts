@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HashLock } from '../hashlock.js';
 import { GraphQLError, AuthError, NetworkError } from '../errors.js';
+import { meetsKycTier, KYC_TIER_RANK } from '../principal.js';
+import type { PrincipalAttestation } from '../principal.js';
 
 function mockFetch(data: unknown, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -226,6 +228,170 @@ describe('HashLock SDK', () => {
 
       const callArgs = fetch.mock.calls[0];
       expect(callArgs[1].headers['Authorization']).toBe('Bearer new-token');
+    });
+  });
+
+  // ─── Principal / Attestation (EXPERIMENTAL) ─────────────
+
+  describe('principal + attestation types', () => {
+    const validAttestation: PrincipalAttestation = {
+      principalId: 'pr_acme_001',
+      principalType: 'INSTITUTION',
+      tier: 'INSTITUTIONAL',
+      blindId: 'ag_5g7k92bq',
+      issuedAt: Math.floor(Date.now() / 1000),
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      proof: '0xdeadbeef',
+    };
+
+    it('KycTier helpers rank tiers correctly', () => {
+      expect(KYC_TIER_RANK.NONE).toBe(0);
+      expect(KYC_TIER_RANK.INSTITUTIONAL).toBe(4);
+      expect(meetsKycTier('ENHANCED', 'STANDARD')).toBe(true);
+      expect(meetsKycTier('BASIC', 'ENHANCED')).toBe(false);
+    });
+
+    it('createRFQ accepts attestation + agentInstance + tier filters', async () => {
+      const rfq = {
+        id: 'rfq-agent',
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'SELL',
+        amount: '5.0',
+        status: 'ACTIVE',
+        isBlind: true,
+        createdAt: '2026-04-11',
+        userId: 'u1',
+        expiresAt: null,
+        quotesCount: 0,
+      };
+      const fetch = mockFetch({ data: { createRFQ: rfq } });
+      const hl = createClient(fetch);
+
+      // Type-level acceptance: the SDK compiles and runs with the
+      // new fields. GraphQL wire-through is a later release.
+      const result = await hl.createRFQ({
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'SELL',
+        amount: '5.0',
+        isBlind: true,
+        attestation: validAttestation,
+        agentInstance: {
+          instanceId: 'ag_5g7k92bq',
+          strategy: 'mm-eth-usdt',
+          version: '1.0.0',
+        },
+        minCounterpartyTier: 'STANDARD',
+        hideIdentity: true,
+      });
+
+      expect(result.id).toBe('rfq-agent');
+    });
+
+    it('submitQuote accepts attestation + agentInstance + hideIdentity', async () => {
+      const quote = {
+        id: 'q-agent',
+        rfqId: 'rfq-1',
+        marketMakerId: 'mm-1',
+        price: '3450',
+        amount: '1.0',
+        status: 'PENDING',
+        createdAt: '2026-04-11',
+        expiresAt: null,
+      };
+      const fetch = mockFetch({ data: { submitQuote: quote } });
+      const hl = createClient(fetch);
+
+      const result = await hl.submitQuote({
+        rfqId: 'rfq-1',
+        price: '3450',
+        amount: '1.0',
+        attestation: validAttestation,
+        agentInstance: { instanceId: 'ag_5g7k92bq' },
+        hideIdentity: true,
+      });
+
+      expect(result.id).toBe('q-agent');
+    });
+
+    it('fundHTLC accepts attestation + agentInstance', async () => {
+      const fetch = mockFetch({
+        data: { fundHTLC: { tradeId: 't-1', txHash: '0xabc', status: 'PENDING' } },
+      });
+      const hl = createClient(fetch);
+
+      const result = await hl.fundHTLC({
+        tradeId: 't-1',
+        txHash: '0xabc',
+        role: 'INITIATOR',
+        chainType: 'evm',
+        attestation: validAttestation,
+        agentInstance: { instanceId: 'ag_5g7k92bq' },
+      });
+
+      expect(result.status).toBe('PENDING');
+    });
+
+    it('existing calls without attestation still work (backward compat)', async () => {
+      const rfq = {
+        id: 'rfq-human',
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'BUY',
+        amount: '1.0',
+        status: 'ACTIVE',
+        isBlind: false,
+        createdAt: '2026-04-11',
+        userId: 'u1',
+        expiresAt: null,
+        quotesCount: 0,
+      };
+      const fetch = mockFetch({ data: { createRFQ: rfq } });
+      const hl = createClient(fetch);
+
+      const result = await hl.createRFQ({
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'BUY',
+        amount: '1.0',
+      });
+
+      expect(result.id).toBe('rfq-human');
+    });
+
+    it('parses attestation tier fields from RFQ responses', async () => {
+      const rfq = {
+        id: 'rfq-1',
+        userId: 'u1',
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'SELL',
+        amount: '5',
+        status: 'ACTIVE',
+        isBlind: true,
+        createdAt: '2026-04-11',
+        expiresAt: null,
+        quotesCount: 0,
+        attestationTier: 'INSTITUTIONAL',
+        attestationBlindId: 'ag_5g7k92bq',
+        minCounterpartyTier: 'STANDARD',
+      };
+      const fetch = mockFetch({ data: { createRFQ: rfq } });
+      const hl = createClient(fetch);
+
+      const result = await hl.createRFQ({
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'SELL',
+        amount: '5',
+      });
+
+      // Type is `KycTier | null | undefined`; the JSON response is
+      // assignable (TS response types are a loose projection).
+      expect(result.attestationTier).toBe('INSTITUTIONAL');
+      expect(result.attestationBlindId).toBe('ag_5g7k92bq');
+      expect(result.minCounterpartyTier).toBe('STANDARD');
     });
   });
 });
