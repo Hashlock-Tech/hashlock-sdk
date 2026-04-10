@@ -1,6 +1,6 @@
 {
   "name": "@hashlock-tech/sdk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "TypeScript SDK for HashLock OTC — HTLC atomic settlement, RFQ trading, and Bitcoin cross-chain swaps",
   "license": "MIT",
   "type": "module",
