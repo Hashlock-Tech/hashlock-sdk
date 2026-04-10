@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HashLock } from '../hashlock.js';
 import { GraphQLError, AuthError, NetworkError } from '../errors.js';
 import { meetsKycTier, KYC_TIER_RANK } from '../principal.js';
+import { __resetExperimentalWarningState } from '../experimental.js';
 import type { PrincipalAttestation } from '../principal.js';
 
 function mockFetch(data: unknown, status = 200) {
@@ -358,6 +359,77 @@ describe('HashLock SDK', () => {
       });
 
       expect(result.id).toBe('rfq-human');
+    });
+
+    it('emits experimental warning when attestation is set on createRFQ', async () => {
+      __resetExperimentalWarningState();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fetch = mockFetch({
+        data: {
+          createRFQ: {
+            id: 'rfq-w',
+            baseToken: 'ETH',
+            quoteToken: 'USDT',
+            side: 'SELL',
+            amount: '1',
+            status: 'ACTIVE',
+            isBlind: false,
+            createdAt: '2026-04-11',
+            userId: 'u1',
+            expiresAt: null,
+            quotesCount: 0,
+          },
+        },
+      });
+      const hl = createClient(fetch);
+
+      await hl.createRFQ({
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'SELL',
+        amount: '1',
+        attestation: validAttestation,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('EXPERIMENTAL'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('createRFQ.attestation'),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('does not emit warning when no experimental fields are set', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fetch = mockFetch({
+        data: {
+          createRFQ: {
+            id: 'rfq-plain',
+            baseToken: 'ETH',
+            quoteToken: 'USDT',
+            side: 'BUY',
+            amount: '1',
+            status: 'ACTIVE',
+            isBlind: false,
+            createdAt: '2026-04-11',
+            userId: 'u1',
+            expiresAt: null,
+            quotesCount: 0,
+          },
+        },
+      });
+      const hl = createClient(fetch);
+
+      await hl.createRFQ({
+        baseToken: 'ETH',
+        quoteToken: 'USDT',
+        side: 'BUY',
+        amount: '1',
+      });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
 
     it('parses attestation tier fields from RFQ responses', async () => {

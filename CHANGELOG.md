@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-04-11
+
+### Added
+- **Experimental field warning** — when a caller sets any of the
+  experimental agent-layer fields (`attestation`, `agentInstance`,
+  `minCounterpartyTier`, `hideIdentity`) on `createRFQ`,
+  `submitQuote`, or `fundHTLC`, the SDK now emits a one-time
+  `console.warn` per field/method pair explaining that GraphQL
+  wire-through to the Cayman backend is not yet implemented and
+  the field is currently a no-op at the network layer.
+- Warning can be suppressed with `HASHLOCK_SDK_SILENCE_EXPERIMENTAL=1`
+  for call sites that have already acknowledged the experimental
+  status.
+- 2 new tests verifying the warning fires when experimental fields
+  are set and stays silent when they are not.
+
+### Why
+The v0.1.3 release exposed experimental type surface for agent
+flows but dropped the fields silently at the network layer — a
+DX hazard, because a caller could set `attestation` and assume
+it reached the backend. This warning closes the expectation gap.
+
 ## [0.1.3] - 2026-04-11
 
 ### Added

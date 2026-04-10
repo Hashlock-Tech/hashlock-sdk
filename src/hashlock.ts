@@ -1,4 +1,5 @@
 import { GraphQLClient } from './client.js';
+import { warnIfExperimental } from './experimental.js';
 import type {
   HashLockConfig,
   RFQ,
@@ -93,6 +94,7 @@ export class HashLock {
    * ```
    */
   async createRFQ(input: CreateRFQInput): Promise<RFQ> {
+    warnIfExperimental('createRFQ', input as unknown as Record<string, unknown>);
     const { createRFQ } = await this.client.mutate<{ createRFQ: RFQ }>(`
       mutation CreateRFQ($baseToken: String!, $quoteToken: String!, $side: Side!, $amount: String!, $expiresIn: Int, $isBlind: Boolean) {
         createRFQ(baseToken: $baseToken, quoteToken: $quoteToken, side: $side, amount: $amount, expiresIn: $expiresIn, isBlind: $isBlind) {
@@ -162,6 +164,7 @@ export class HashLock {
    * ```
    */
   async submitQuote(input: SubmitQuoteInput): Promise<Quote> {
+    warnIfExperimental('submitQuote', input as unknown as Record<string, unknown>);
     const { submitQuote } = await this.client.mutate<{ submitQuote: Quote }>(`
       mutation SubmitQuote($rfqId: ID!, $price: String!, $amount: String!, $expiresIn: Int) {
         submitQuote(rfqId: $rfqId, price: $price, amount: $amount, expiresIn: $expiresIn) {
@@ -303,6 +306,7 @@ export class HashLock {
    * ```
    */
   async fundHTLC(input: FundHTLCInput): Promise<FundHTLCResult> {
+    warnIfExperimental('fundHTLC', input as unknown as Record<string, unknown>);
     const { fundHTLC } = await this.client.mutate<{ fundHTLC: FundHTLCResult }>(`
       mutation FundHTLC($tradeId: ID!, $txHash: String!, $role: HTLCRole!, $timelock: Int, $hashlock: String, $chainType: String, $senderPubKey: String, $receiverPubKey: String, $redeemScript: String, $refundTxHex: String, $preimage: String) {
         fundHTLC(tradeId: $tradeId, txHash: $txHash, role: $role, timelock: $timelock, hashlock: $hashlock, chainType: $chainType, senderPubKey: $senderPubKey, receiverPubKey: $receiverPubKey, redeemScript: $redeemScript, refundTxHex: $refundTxHex, preimage: $preimage) {
