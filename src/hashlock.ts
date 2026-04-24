@@ -24,18 +24,33 @@ import type {
   RFQStatus,
 } from './types.js';
 
-/** Mainnet endpoint */
-export const MAINNET_ENDPOINT = 'http://142.93.106.129/api/graphql';
+/**
+ * Canonical Hashlock Markets production endpoint.
+ *
+ * Points at api-gateway's /graphql (not /api/graphql — that path is a
+ * browser-only Next.js SSR proxy that reads the httpOnly api-token cookie
+ * and ignores the Authorization header, so it rejects every SDK call
+ * with `Unauthorized — missing api-token`).
+ *
+ * /graphql is served directly by the Apollo gateway and accepts
+ * `Authorization: Bearer <accessToken>`, which matches how this SDK
+ * constructs its requests (see makeRequest in this file).
+ *
+ * Superseded: `http://142.93.106.129/api/graphql` (old DigitalOcean
+ * droplet IP, compromised 2026-04-22, now unreachable and possibly
+ * attacker-controlled — never restore).
+ */
+export const MAINNET_ENDPOINT = 'https://hashlock.markets/graphql';
 
 /**
  * HashLock SDK — TypeScript client for HashLock OTC trading platform.
  *
  * @example
  * ```ts
- * import { HashLock } from '@hashlock/sdk';
+ * import { HashLock } from '@hashlock-tech/sdk';
  *
  * const hl = new HashLock({
- *   endpoint: 'http://142.93.106.129/graphql',
+ *   endpoint: 'https://hashlock.markets/graphql',
  *   accessToken: 'your-jwt-token',
  * });
  *
