@@ -96,8 +96,8 @@ export class HashLock {
   async createRFQ(input: CreateRFQInput): Promise<RFQ> {
     warnIfExperimental('createRFQ', input as unknown as Record<string, unknown>);
     const { createRFQ } = await this.client.mutate<{ createRFQ: RFQ }>(`
-      mutation CreateRFQ($baseToken: String!, $quoteToken: String!, $side: Side!, $amount: String!, $expiresIn: Int, $isBlind: Boolean) {
-        createRFQ(baseToken: $baseToken, quoteToken: $quoteToken, side: $side, amount: $amount, expiresIn: $expiresIn, isBlind: $isBlind) {
+      mutation CreateRFQ($baseToken: String!, $quoteToken: String!, $side: Side!, $amount: String!, $expiresIn: Int, $isBlind: Boolean, $baseChain: String, $quoteChain: String) {
+        createRFQ(baseToken: $baseToken, quoteToken: $quoteToken, side: $side, amount: $amount, expiresIn: $expiresIn, isBlind: $isBlind, baseChain: $baseChain, quoteChain: $quoteChain) {
           id userId baseToken quoteToken side amount isBlind status expiresAt createdAt quotesCount
         }
       }

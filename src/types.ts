@@ -126,6 +126,21 @@ export interface HTLCStatusResult {
 
 // ─── Mutation Inputs ─────────────────────────────────────────
 
+/**
+ * Canonical chain identifier for per-leg RFQ params. Matches the chain `id`
+ * registered in the backend's `ChainRegistry`. Cross-chain RFQs (e.g. SUI on
+ * Sui mainnet ↔ ETH on Sepolia) require both `baseChain` and `quoteChain`
+ * to be set so the backend can resolve `(symbol, chain)` composite tokens
+ * unambiguously.
+ */
+export type RFQChainId =
+  | 'ethereum'
+  | 'sepolia'
+  | 'bitcoin'
+  | 'bitcoin-signet'
+  | 'sui'
+  | 'sui-testnet';
+
 export interface CreateRFQInput {
   /** Base asset symbol (e.g., 'ETH', 'BTC') */
   baseToken: string;
@@ -139,6 +154,12 @@ export interface CreateRFQInput {
   expiresIn?: number;
   /** Hide counterparty identity in blind auction mode */
   isBlind?: boolean;
+  /** Chain the base token settles on. Optional — when omitted the backend
+   *  falls back to its single-chain default (env-driven). Set together with
+   *  `quoteChain` to express a cross-chain RFQ. */
+  baseChain?: RFQChainId;
+  /** Chain the quote token settles on. See `baseChain`. */
+  quoteChain?: RFQChainId;
   /** EXPERIMENTAL — Principal attestation for agent / institution
    *  flows. The shape is accepted by the SDK today but is not yet
    *  sent to the Cayman backend. Wire-through will land in a later

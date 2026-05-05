@@ -36,6 +36,29 @@ describe('HashLock SDK', () => {
       expect(result.status).toBe('ACTIVE');
       expect(fetch).toHaveBeenCalledTimes(1);
     });
+
+    it('forwards baseChain and quoteChain for cross-chain RFQs (e.g. SUI/sui ↔ ETH/sepolia)', async () => {
+      const rfq = { id: 'rfq-cross', baseToken: 'SUI', quoteToken: 'ETH', side: 'SELL', amount: '10', status: 'ACTIVE', isBlind: false, createdAt: '2026-01-01', userId: 'u1', expiresAt: null, quotesCount: 0 };
+      const fetch = mockFetch({ data: { createRFQ: rfq } });
+      const hl = createClient(fetch);
+
+      await hl.createRFQ({
+        baseToken: 'SUI',
+        quoteToken: 'ETH',
+        side: 'SELL',
+        amount: '10',
+        baseChain: 'sui',
+        quoteChain: 'sepolia',
+      });
+
+      const body = JSON.parse(fetch.mock.calls[0][1].body);
+      expect(body.variables.baseChain).toBe('sui');
+      expect(body.variables.quoteChain).toBe('sepolia');
+      // Mutation signature must include the new variable types so the
+      // backend GraphQL parser accepts the operation.
+      expect(body.query).toContain('$baseChain: String');
+      expect(body.query).toContain('$quoteChain: String');
+    });
   });
 
   describe('getRFQ', () => {
