@@ -2,6 +2,10 @@
 
 TypeScript SDK for [HashLock](https://hashlock.tech) — institutional OTC trading with HTLC atomic settlement on Ethereum and Bitcoin.
 
+> 📐 **Architecture:** how this SDK is layered and how it connects to the Hashlock Markets
+> backend — [`docs/architecture/ARCHITECTURE.md`](./docs/architecture/ARCHITECTURE.md)
+> ([Русский](./docs/architecture/ARCHITECTURE.ru.md)).
+
 ## Install
 
 ```bash
