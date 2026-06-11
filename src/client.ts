@@ -7,7 +7,7 @@ const RETRY_DELAY_BASE = 1000;
 
 interface GQLResponse<T> {
   data?: T;
-  errors?: Array<{ message: string; path?: string[] }>;
+  errors?: Array<{ message: string; path?: string[]; extensions?: Record<string, unknown> }>;
 }
 
 /**
@@ -35,6 +35,11 @@ export class GraphQLClient {
 
   setAccessToken(token: string): void {
     this.accessToken = token;
+  }
+
+  /** Current bearer token — used by the subscription transport. @internal */
+  getAccessToken(): string | undefined {
+    return this.accessToken;
   }
 
   /**

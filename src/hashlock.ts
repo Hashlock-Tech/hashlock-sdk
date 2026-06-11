@@ -1,5 +1,18 @@
 import { GraphQLClient } from './client.js';
 import { warnIfExperimental } from './experimental.js';
+import { HashLockError } from './errors.js';
+import {
+  INSTANT_FILL_FIELDS,
+  InstantFillOrphanedError,
+  classifyInstantFillError,
+  sanitizeAgentPolicy,
+} from './instant.js';
+import type { AgentPolicy, InstantFill, InstantTakerResult } from './instant.js';
+import {
+  deriveWsEndpoint,
+  subscribeOverWebSocket,
+} from './ws.js';
+import type { SubscriptionHandle, WebSocketConstructor } from './ws.js';
 import type {
   HashLockConfig,
   RFQ,
@@ -65,8 +78,10 @@ export const MAINNET_ENDPOINT = 'https://hashlock.markets/graphql';
  */
 export class HashLock {
   private client: GraphQLClient;
+  private config: HashLockConfig;
 
   constructor(config: HashLockConfig) {
+    this.config = config;
     this.client = new GraphQLClient(config);
   }
 
@@ -166,9 +181,9 @@ export class HashLock {
   async submitQuote(input: SubmitQuoteInput): Promise<Quote> {
     warnIfExperimental('submitQuote', input as unknown as Record<string, unknown>);
     const { submitQuote } = await this.client.mutate<{ submitQuote: Quote }>(`
-      mutation SubmitQuote($rfqId: ID!, $price: String!, $amount: String!, $expiresIn: Int) {
-        submitQuote(rfqId: $rfqId, price: $price, amount: $amount, expiresIn: $expiresIn) {
-          id rfqId marketMakerId price amount status createdAt expiresAt
+      mutation SubmitQuote($rfqId: ID!, $price: String!, $amount: String!, $expiresIn: Int, $instantFill: Boolean, $solverVaultAddr: String) {
+        submitQuote(rfqId: $rfqId, price: $price, amount: $amount, expiresIn: $expiresIn, instantFill: $instantFill, solverVaultAddr: $solverVaultAddr) {
+          id rfqId marketMakerId price amount status createdAt expiresAt instantFill solverVaultAddr
         }
       }
     `, input);
@@ -177,8 +192,26 @@ export class HashLock {
 
   /**
    * Accept a quote — creates a trade from the RFQ flow.
+   *
+   * @param policy Optional settlement PREFERENCE (`AgentPolicy`). A
+   * policy never causes the accept to fail: the SDK sanitizes it
+   * (invalid fields are dropped; nothing valid left → omitted
+   * entirely) and the backend treats it as routing advice only.
+   * Use `policyPresets.instant / .balanced / .trustless` or spread
+   * your own: `{ ...policyPresets.balanced, maxFeeBps: 30 }`.
    */
-  async acceptQuote(quoteId: string): Promise<Quote> {
+  async acceptQuote(quoteId: string, policy?: AgentPolicy): Promise<Quote> {
+    const sanitized = sanitizeAgentPolicy(policy);
+    if (sanitized) {
+      const { acceptQuote } = await this.client.mutate<{ acceptQuote: Quote }>(`
+        mutation AcceptQuote($quoteId: ID!, $policy: AgentPolicyInput) {
+          acceptQuote(quoteId: $quoteId, policy: $policy) {
+            id rfqId status trade { id status }
+          }
+        }
+      `, { quoteId, policy: sanitized });
+      return acceptQuote;
+    }
     const { acceptQuote } = await this.client.mutate<{ acceptQuote: Quote }>(`
       mutation AcceptQuote($quoteId: ID!) {
         acceptQuote(quoteId: $quoteId) {
@@ -202,6 +235,209 @@ export class HashLock {
       }
     `, { rfqId });
     return quotes;
+  }
+
+  // ─── Instant Settlement (Lane A) ─────────────────────────
+
+  /**
+   * Request an instant fill for a quote that carries an instant-fill
+   * commitment (`quote.instantFill === true`). Taker side.
+   *
+   * CANONICAL ORDER: call this FIRST; only after it succeeds call
+   * `acceptQuote`. Prefer `requestInstantFillAndAccept` which
+   * enforces the order and maps the typed failure modes for you.
+   *
+   * Typed failures (see `classifyInstantFillError`):
+   * - `INSTANT_FILL_DISABLED` — feature flag off
+   * - 409 with `extensions.metadata.lane` — lane conflict
+   * - 409 without lane — fill already requested for this quote
+   */
+  async requestInstantFill(rfqId: string, quoteId: string): Promise<InstantFill> {
+    const { requestInstantFill } = await this.client.mutate<{ requestInstantFill: InstantFill }>(`
+      mutation RequestInstantFill($rfqId: ID!, $quoteId: ID!) {
+        requestInstantFill(rfqId: $rfqId, quoteId: $quoteId) {
+          ${INSTANT_FILL_FIELDS}
+        }
+      }
+    `, { rfqId, quoteId });
+    return requestInstantFill;
+  }
+
+  /**
+   * Mark an instant fill as fronted — solver side (must be the
+   * market maker of the underlying quote). Call after the vault's
+   * fronting payment tx is sent on-chain.
+   */
+  async markInstantFillFronted(fillId: string, frontTxHash: string): Promise<InstantFill> {
+    const { markInstantFillFronted } = await this.client.mutate<{ markInstantFillFronted: InstantFill }>(`
+      mutation MarkInstantFillFronted($fillId: ID!, $frontTxHash: String!) {
+        markInstantFillFronted(fillId: $fillId, frontTxHash: $frontTxHash) {
+          ${INSTANT_FILL_FIELDS}
+        }
+      }
+    `, { fillId, frontTxHash });
+    return markInstantFillFronted;
+  }
+
+  /**
+   * Taker flow helper — the canonical instant-fill sequence in one
+   * call, with typed fallbacks (see `InstantTakerResult`):
+   *
+   * 1. `requestInstantFill(rfqId, quoteId)`
+   *    - SUCCESS → 2
+   *    - typed refusal (disabled / lane conflict / already requested)
+   *      → standard `acceptQuote` fallback → `{ kind: 'standard', reason }`
+   *    - any other error (auth/network/validation) → THROWN
+   * 2. `acceptQuote(quoteId, policy)`
+   *    - SUCCESS → `{ kind: 'instant', fill, quote }`
+   *    - FAILURE → `{ kind: 'fill_orphaned', fill, error }` — the fill
+   *      is committed server-side; recover with
+   *      `retryAcceptAfterInstantFill(result.fill)`.
+   *
+   * @example
+   * ```ts
+   * const res = await hl.requestInstantFillAndAccept(rfqId, quoteId, {
+   *   policy: policyPresets.instant,
+   * });
+   * if (res.kind === 'instant') console.log('fronting incoming', res.fill.amountWei);
+   * if (res.kind === 'standard') console.log('standard path:', res.reason);
+   * if (res.kind === 'fill_orphaned') await hl.retryAcceptAfterInstantFill(res.fill);
+   * ```
+   */
+  async requestInstantFillAndAccept(
+    rfqId: string,
+    quoteId: string,
+    options?: { policy?: AgentPolicy },
+  ): Promise<InstantTakerResult> {
+    let fill: InstantFill;
+    try {
+      fill = await this.requestInstantFill(rfqId, quoteId);
+    } catch (err) {
+      const fallback = classifyInstantFillError(err);
+      if (!fallback) throw err; // unexpected — do not swallow
+      const quote = await this.acceptQuote(quoteId, options?.policy);
+      return { kind: 'standard', reason: fallback.reason, lane: fallback.lane, quote };
+    }
+
+    try {
+      const quote = await this.acceptQuote(quoteId, options?.policy);
+      return { kind: 'instant', fill, quote };
+    } catch (err) {
+      const cause = err instanceof Error ? err : new Error(String(err));
+      return { kind: 'fill_orphaned', fill, error: new InstantFillOrphanedError(fill, cause) };
+    }
+  }
+
+  /**
+   * Accept-only retry for an orphaned instant fill (fill committed,
+   * accept failed). NEVER re-requests the fill — a second
+   * `requestInstantFill` would 409 on the exactly-once-per-quote
+   * guard. Returns the same result union as
+   * `requestInstantFillAndAccept`.
+   */
+  async retryAcceptAfterInstantFill(
+    fill: InstantFill,
+    policy?: AgentPolicy,
+  ): Promise<InstantTakerResult> {
+    try {
+      const quote = await this.acceptQuote(fill.quoteId, policy);
+      return { kind: 'instant', fill, quote };
+    } catch (err) {
+      const cause = err instanceof Error ? err : new Error(String(err));
+      return { kind: 'fill_orphaned', fill, error: new InstantFillOrphanedError(fill, cause) };
+    }
+  }
+
+  /**
+   * Solver side: subscribe to instant-fill requests against YOUR
+   * quotes (server scopes the stream by the authenticated maker).
+   * Requires a WebSocket-capable runtime (see `HashLockConfig.webSocket`).
+   */
+  onInstantFillRequested(
+    onFill: (fill: InstantFill) => void,
+    opts?: { onError?: (err: Error) => void; onComplete?: () => void },
+  ): SubscriptionHandle {
+    return this.subscribeInstantFill('instantFillRequested', onFill, opts);
+  }
+
+  /**
+   * Taker side: subscribe to fronting notifications for YOUR
+   * instant fills (server scopes the stream by the authenticated taker).
+   */
+  onInstantFillFronted(
+    onFill: (fill: InstantFill) => void,
+    opts?: { onError?: (err: Error) => void; onComplete?: () => void },
+  ): SubscriptionHandle {
+    return this.subscribeInstantFill('instantFillFronted', onFill, opts);
+  }
+
+  /**
+   * Solver flow helper: watch `instantFillRequested`, front each fill
+   * via your `front` callback (send the vault payment, return its tx
+   * hash), then `markInstantFillFronted` automatically.
+   *
+   * @example
+   * ```ts
+   * const handle = hl.serveInstantFills(async (fill) => {
+   *   const txHash = await vault.front(fill.quoteId, BigInt(fill.amountWei));
+   *   return txHash;
+   * }, { onFronted: (f) => console.log('fronted', f.id) });
+   * ```
+   */
+  serveInstantFills(
+    front: (fill: InstantFill) => Promise<string>,
+    opts?: {
+      onFronted?: (fill: InstantFill) => void;
+      onError?: (err: Error, fill?: InstantFill) => void;
+      onComplete?: () => void;
+    },
+  ): SubscriptionHandle {
+    return this.onInstantFillRequested(
+      (fill) => {
+        void (async () => {
+          try {
+            const txHash = await front(fill);
+            const updated = await this.markInstantFillFronted(fill.id, txHash);
+            opts?.onFronted?.(updated);
+          } catch (err) {
+            const e = err instanceof Error ? err : new Error(String(err));
+            opts?.onError?.(e, fill);
+          }
+        })();
+      },
+      { onError: (err) => opts?.onError?.(err), onComplete: opts?.onComplete },
+    );
+  }
+
+  private subscribeInstantFill(
+    field: 'instantFillRequested' | 'instantFillFronted',
+    onFill: (fill: InstantFill) => void,
+    opts?: { onError?: (err: Error) => void; onComplete?: () => void },
+  ): SubscriptionHandle {
+    const ctor =
+      this.config.webSocket ??
+      (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket;
+    if (!ctor) {
+      throw new HashLockError(
+        'GraphQL subscriptions need a WebSocket implementation — pass ' +
+          "`webSocket` in HashLockConfig (e.g. `import WebSocket from 'ws'`) " +
+          'or run on a runtime with a global WebSocket (browsers, Node >= 22).',
+        'WEBSOCKET_UNAVAILABLE',
+      );
+    }
+    const opName = field === 'instantFillRequested' ? 'InstantFillRequested' : 'InstantFillFronted';
+    return subscribeOverWebSocket<Record<typeof field, InstantFill>>({
+      url: this.config.wsEndpoint ?? deriveWsEndpoint(this.config.endpoint),
+      webSocket: ctor,
+      token: this.client.getAccessToken(),
+      query: `subscription ${opName} { ${field} { ${INSTANT_FILL_FIELDS} } }`,
+      onData: (data) => {
+        const fill = data[field];
+        if (fill) onFill(fill);
+      },
+      onError: opts?.onError,
+      onComplete: opts?.onComplete,
+    });
   }
 
   // ─── Trades ──────────────────────────────────────────────

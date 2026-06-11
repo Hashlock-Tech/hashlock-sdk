@@ -3,6 +3,7 @@ import type {
   AgentInstance,
   KycTier,
 } from './principal.js';
+import type { WebSocketConstructor } from './ws.js';
 
 // ─── Enums ───────────────────────────────────────────────────
 
@@ -83,6 +84,14 @@ export interface Quote {
   attestationTier?: KycTier | null;
   /** EXPERIMENTAL: blind identity of the market maker */
   attestationBlindId?: string | null;
+  /** Solver instant-fill commitment: when true, the maker fronts the
+   *  taker's asset from `solverVaultAddr` immediately on accept and is
+   *  reimbursed at settlement. */
+  instantFill?: boolean;
+  /** On-chain address of the solver vault that fronts the fill.
+   *  Set when `instantFill` is true. Chain-agnostic format
+   *  (EVM 0x-hex, Sui 0x-hex, BTC bech32). */
+  solverVaultAddr?: string | null;
 }
 
 export interface Trade {
@@ -183,6 +192,13 @@ export interface SubmitQuoteInput {
   amount: string;
   /** Expiration time in seconds */
   expiresIn?: number;
+  /** Instant-fill commitment: "if accepted, I front the taker's asset
+   *  immediately from my vault and get reimbursed at settlement".
+   *  Requires `solverVaultAddr`. */
+  instantFill?: boolean;
+  /** On-chain address of the solver vault that fronts the fill.
+   *  Required when `instantFill` is true (backend coherence CHECK). */
+  solverVaultAddr?: string;
   /** EXPERIMENTAL — Market maker's principal attestation. */
   attestation?: PrincipalAttestation;
   /** EXPERIMENTAL — Agent instance metadata. */
@@ -334,4 +350,11 @@ export interface HashLockConfig {
   retries?: number;
   /** Custom fetch implementation (for Node.js < 18 or testing) */
   fetch?: typeof fetch;
+  /** WebSocket implementation for GraphQL subscriptions. Defaults to
+   *  `globalThis.WebSocket` (browsers, Node >= 22). On Node 18/20 pass
+   *  the `ws` package's default export. */
+  webSocket?: WebSocketConstructor;
+  /** Subscription endpoint. Defaults to `endpoint` with the scheme
+   *  switched to ws/wss. */
+  wsEndpoint?: string;
 }

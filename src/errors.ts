@@ -14,11 +14,19 @@ export class HashLockError extends Error {
 
 /**
  * GraphQL returned errors in the response.
+ *
+ * `extensions` carries the server's structured error data (e.g.
+ * `code`, `http.status`, `metadata.lane` for instant-fill lane
+ * conflicts) and is preserved verbatim for typed classification.
  */
 export class GraphQLError extends HashLockError {
   constructor(
     message: string,
-    public readonly errors: Array<{ message: string; path?: string[] }>,
+    public readonly errors: Array<{
+      message: string;
+      path?: string[];
+      extensions?: Record<string, unknown>;
+    }>,
   ) {
     super(message, 'GRAPHQL_ERROR', errors);
     this.name = 'GraphQLError';
