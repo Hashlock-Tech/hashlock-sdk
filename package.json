@@ -33,6 +33,7 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "graphql": "^16",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"

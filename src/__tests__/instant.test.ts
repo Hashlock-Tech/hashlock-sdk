@@ -6,8 +6,13 @@ import {
   sanitizeAgentPolicy,
   classifyInstantFillError,
   InstantFillOrphanedError,
+  TRUST_LEVEL_TO_SCORE,
 } from '../instant.js';
-import type { InstantFill } from '../instant.js';
+import type {
+  InstantFill,
+  InstantFillRequestedEvent,
+  InstantFillFrontedEvent,
+} from '../instant.js';
 import type { WebSocketConstructor } from '../ws.js';
 import { deriveWsEndpoint } from '../ws.js';
 
@@ -55,16 +60,44 @@ const FILL: InstantFill = {
   createdAt: '2026-06-11T00:00:00Z',
 };
 
+/** Schema-accurate subscription payloads (InstantFillRequested /
+ *  InstantFillFronted are DIFFERENT types from InstantFill — the fill id
+ *  arrives as `fillId`, Requested has no tradeId/frontTxHash/frontedAt,
+ *  Fronted has no createdAt). */
+const REQUESTED_EVENT: InstantFillRequestedEvent = {
+  fillId: 'fill-1',
+  quoteId: 'q-1',
+  rfqId: 'rfq-1',
+  state: 'committed',
+  amountWei: '1000000000000000000000000000',
+  createdAt: '2026-06-11T00:00:00Z',
+};
+
+const FRONTED_EVENT: InstantFillFrontedEvent = {
+  fillId: 'fill-1',
+  quoteId: 'q-1',
+  rfqId: 'rfq-1',
+  tradeId: 't-1',
+  state: 'fronted',
+  amountWei: '1000000000000000000000000000',
+  frontTxHash: '0xfront',
+  frontedAt: '2026-06-11T00:01:00Z',
+};
+
 const QUOTE = { id: 'q-1', rfqId: 'rfq-1', status: 'ACCEPTED', trade: { id: 't-1', status: 'PROPOSED' } };
 
-const DISABLED_ERR = { message: 'Instant fill is disabled', extensions: { code: 'INSTANT_FILL_DISABLED' } };
+// REAL wire shapes (verified against the backend error pipeline):
+// trade-service maskTradeError + the gateway formatter serialize a
+// HashlockError as extensions: { ...metadata, code, retryable } —
+// metadata FLATTENED, HTTP statusCode never serialized.
+const DISABLED_ERR = { message: 'instant fill disabled', extensions: { code: 'INSTANT_FILL_DISABLED' } };
 const LANE_ERR = {
-  message: 'Quote routed to a non-instant lane',
-  extensions: { code: 'CONFLICT', http: { status: 409 }, metadata: { lane: 'Z' } },
+  message: 'Instant fill unavailable: the settlement router classified this intent into lane Z',
+  extensions: { code: 'INVALID_INPUT', retryable: false, lane: 'Z' },
 };
 const ALREADY_ERR = {
   message: 'Instant fill already requested for this quote',
-  extensions: { code: 'CONFLICT', http: { status: 409 } },
+  extensions: { code: 'INVALID_STATE_TRANSITION', retryable: false },
 };
 
 // ─── Policy presets + sanitization ───────────────────────────
@@ -78,9 +111,41 @@ describe('policyPresets', () => {
 });
 
 describe('sanitizeAgentPolicy', () => {
-  it('passes a valid policy through', () => {
+  it('produces the wire shape — every field an Int (AgentPolicyInput is all Int)', () => {
     expect(sanitizeAgentPolicy({ maxLatencyMs: 3000, maxFeeBps: 30, minTrust: 'med' }))
-      .toEqual({ maxLatencyMs: 3000, maxFeeBps: 30, minTrust: 'med' });
+      .toEqual({ maxLatencyMs: 3000, maxFeeBps: 30, minTrust: 50 });
+  });
+
+  it('maps TrustLevel strings to the 0-100 Int score (low→0, med→50, max→100)', () => {
+    expect(TRUST_LEVEL_TO_SCORE).toEqual({ low: 0, med: 50, max: 100 });
+    expect(sanitizeAgentPolicy({ minTrust: 'low' })).toEqual({ minTrust: 0 });
+    expect(sanitizeAgentPolicy({ minTrust: 'med' })).toEqual({ minTrust: 50 });
+    expect(sanitizeAgentPolicy({ minTrust: 'max' })).toEqual({ minTrust: 100 });
+  });
+
+  it('never lets a TrustLevel string reach the wire for any preset', () => {
+    for (const preset of Object.values(policyPresets)) {
+      const wire = sanitizeAgentPolicy(preset);
+      expect(wire).toBeDefined();
+      for (const v of Object.values(wire as Record<string, unknown>)) {
+        expect(Number.isInteger(v)).toBe(true); // Int coercion safety
+      }
+    }
+  });
+
+  it('accepts a raw numeric minTrust, flooring and clamping into 0-100', () => {
+    expect(sanitizeAgentPolicy({ minTrust: 75 })).toEqual({ minTrust: 75 });
+    expect(sanitizeAgentPolicy({ minTrust: 72.9 })).toEqual({ minTrust: 72 });
+    expect(sanitizeAgentPolicy({ minTrust: 150 })).toEqual({ minTrust: 100 });
+    expect(sanitizeAgentPolicy({ minTrust: -5 })).toEqual({ minTrust: 0 });
+  });
+
+  it('floors/clamps maxLatencyMs and maxFeeBps into Int-safe backend ranges', () => {
+    expect(sanitizeAgentPolicy({ maxLatencyMs: 2999.9 })).toEqual({ maxLatencyMs: 2999 });
+    expect(sanitizeAgentPolicy({ maxLatencyMs: Number.MAX_SAFE_INTEGER }))
+      .toEqual({ maxLatencyMs: 2_147_483_647 }); // GraphQL Int is 32-bit
+    expect(sanitizeAgentPolicy({ maxFeeBps: 25.7 })).toEqual({ maxFeeBps: 25 });
+    expect(sanitizeAgentPolicy({ maxFeeBps: 20_000 })).toEqual({ maxFeeBps: 10_000 });
   });
 
   it('drops unknown keys and wrongly-typed values instead of throwing', () => {
@@ -94,6 +159,7 @@ describe('sanitizeAgentPolicy', () => {
 
   it('returns undefined when nothing valid remains (→ standard path)', () => {
     expect(sanitizeAgentPolicy({ maxLatencyMs: -1, minTrust: 'huge' })).toBeUndefined();
+    expect(sanitizeAgentPolicy({ minTrust: NaN })).toBeUndefined();
     expect(sanitizeAgentPolicy('instant')).toBeUndefined();
     expect(sanitizeAgentPolicy(null)).toBeUndefined();
     expect(sanitizeAgentPolicy(undefined)).toBeUndefined();
@@ -151,14 +217,16 @@ describe('acceptQuote (policy)', () => {
     expect(body.variables).toEqual({ quoteId: 'q-1' });
   });
 
-  it('with policy declares $policy: AgentPolicyInput and forwards the sanitized policy', async () => {
+  it('with policy declares $policy: AgentPolicyInput and forwards the WIRE policy (minTrust as Int)', async () => {
     const fetch = mockFetchSequence({ data: { acceptQuote: QUOTE } });
     const hl = createClient(fetch);
 
     await hl.acceptQuote('q-1', { ...policyPresets.balanced, maxFeeBps: 30 });
     const body = requestBody(fetch);
     expect(body.query).toContain('$policy: AgentPolicyInput');
-    expect(body.variables.policy).toEqual({ minTrust: 'med', maxFeeBps: 30 });
+    // 'med' must NOT reach the wire — AgentPolicyInput.minTrust is Int,
+    // a string would fail coercion and reject the ENTIRE accept.
+    expect(body.variables.policy).toEqual({ minTrust: 50, maxFeeBps: 30 });
   });
 
   it('a fully broken policy silently falls back to the standard accept (never errors)', async () => {
@@ -209,19 +277,49 @@ describe('markInstantFillFronted', () => {
 // ─── Error classification ────────────────────────────────────
 
 describe('classifyInstantFillError', () => {
-  it('INSTANT_FILL_DISABLED → disabled', () => {
+  it('INSTANT_FILL_DISABLED code → disabled', () => {
     const err = new GraphQLError(DISABLED_ERR.message, [DISABLED_ERR]);
     expect(classifyInstantFillError(err)).toEqual({ reason: 'disabled' });
   });
 
-  it('409 with metadata.lane → lane_conflict carrying the lane', () => {
+  it('gateway-masked disabled error (message replaced, code preserved) → disabled', () => {
+    // In production the gateway masks the message of non-SAFE_CODES errors
+    // but PRESERVES extensions.code.
+    const err = new GraphQLError('masked', [{
+      message: 'An error occurred. Please try again or contact support.',
+      extensions: { code: 'INSTANT_FILL_DISABLED' },
+    }]);
+    expect(classifyInstantFillError(err)).toEqual({ reason: 'disabled' });
+  });
+
+  it('INVALID_INPUT with flattened extensions.lane → lane_conflict carrying the lane', () => {
+    // HashlockError metadata { lane } is FLATTENED into extensions by
+    // maskTradeError/formatGraphQLError — the real wire shape.
     const err = new GraphQLError(LANE_ERR.message, [LANE_ERR]);
     expect(classifyInstantFillError(err)).toEqual({ reason: 'lane_conflict', lane: 'Z' });
   });
 
-  it('409 without lane → already_requested', () => {
+  it('nested extensions.metadata.lane (non-flattening transport) still → lane_conflict', () => {
+    const err = new GraphQLError('lane', [{
+      message: 'lane', extensions: { code: 'INVALID_INPUT', metadata: { lane: 'B' } },
+    }]);
+    expect(classifyInstantFillError(err)).toEqual({ reason: 'lane_conflict', lane: 'B' });
+  });
+
+  it('INVALID_STATE_TRANSITION "already requested" → already_requested', () => {
     const err = new GraphQLError(ALREADY_ERR.message, [ALREADY_ERR]);
     expect(classifyInstantFillError(err)).toEqual({ reason: 'already_requested' });
+  });
+
+  it('other INVALID_STATE_TRANSITION errors (quote no longer firm / expired) → null', () => {
+    // A dead quote would fail the standard accept too — silently falling
+    // back would only obscure the real error.
+    for (const message of ['Quote is no longer firm (status ACCEPTED)', 'Quote has expired']) {
+      const err = new GraphQLError(message, [{
+        message, extensions: { code: 'INVALID_STATE_TRANSITION', retryable: false },
+      }]);
+      expect(classifyInstantFillError(err)).toBeNull();
+    }
   });
 
   it('unrelated GraphQL error → null (must be rethrown by callers)', () => {
@@ -406,10 +504,10 @@ describe('deriveWsEndpoint', () => {
 });
 
 describe('onInstantFillRequested (solver-scoped subscription)', () => {
-  it('runs the graphql-transport-ws handshake and delivers fills', () => {
+  it('runs the graphql-transport-ws handshake and delivers events', () => {
     const hl = createWsClient();
-    const fills: InstantFill[] = [];
-    hl.onInstantFillRequested((f) => fills.push(f));
+    const events: InstantFillRequestedEvent[] = [];
+    hl.onInstantFillRequested((e) => events.push(e));
 
     const ws = FakeWebSocket.instances[0];
     expect(ws.url).toBe('wss://hashlock.markets/graphql');
@@ -423,14 +521,25 @@ describe('onInstantFillRequested (solver-scoped subscription)', () => {
     ws.emit('message', { data: JSON.stringify({ type: 'connection_ack' }) });
     const sub = ws.lastSent();
     expect(sub.type).toBe('subscribe');
-    expect(String(sub.payload?.query)).toContain('instantFillRequested');
-    expect(String(sub.payload?.query)).toContain('amountWei');
+    const query = String(sub.payload?.query);
+    expect(query).toContain('instantFillRequested');
+    // InstantFillRequested payload: fillId quoteId rfqId state amountWei createdAt
+    expect(query).toContain('fillId');
+    expect(query).toContain('rfqId');
+    expect(query).toContain('amountWei');
+    // Fields that do NOT exist on InstantFillRequested must not be selected
+    // (they made the live server reject the subscription).
+    expect(query).not.toMatch(/\bid\b/);
+    expect(query).not.toContain('tradeId');
+    expect(query).not.toContain('frontTxHash');
+    expect(query).not.toContain('frontedAt');
 
     ws.emit('message', {
-      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillRequested: FILL } } }),
+      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillRequested: REQUESTED_EVENT } } }),
     });
-    expect(fills).toHaveLength(1);
-    expect(typeof fills[0].amountWei).toBe('string');
+    expect(events).toHaveLength(1);
+    expect(events[0].fillId).toBe('fill-1');
+    expect(typeof events[0].amountWei).toBe('string');
   });
 
   it('unsubscribe sends complete and closes the socket', () => {
@@ -491,20 +600,29 @@ describe('onInstantFillRequested (solver-scoped subscription)', () => {
 });
 
 describe('onInstantFillFronted (taker-scoped subscription)', () => {
-  it('subscribes to instantFillFronted and delivers the fronted fill', () => {
+  it('subscribes to instantFillFronted and delivers the fronted event', () => {
     const hl = createWsClient();
-    const fills: InstantFill[] = [];
-    hl.onInstantFillFronted((f) => fills.push(f));
+    const events: InstantFillFrontedEvent[] = [];
+    hl.onInstantFillFronted((e) => events.push(e));
     const ws = FakeWebSocket.instances[0];
     ws.emit('open');
     ws.emit('message', { data: JSON.stringify({ type: 'connection_ack' }) });
-    expect(String(ws.lastSent().payload?.query)).toContain('instantFillFronted');
+    const query = String(ws.lastSent().payload?.query);
+    expect(query).toContain('instantFillFronted');
+    // InstantFillFronted payload: fillId quoteId rfqId tradeId state amountWei frontTxHash frontedAt
+    expect(query).toContain('fillId');
+    expect(query).toContain('tradeId');
+    expect(query).toContain('frontTxHash');
+    expect(query).toContain('frontedAt');
+    // Fields that do NOT exist on InstantFillFronted must not be selected.
+    expect(query).not.toMatch(/\bid\b/);
+    expect(query).not.toContain('createdAt');
 
-    const fronted = { ...FILL, state: 'fronted', frontTxHash: '0xfront' };
     ws.emit('message', {
-      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillFronted: fronted } } }),
+      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillFronted: FRONTED_EVENT } } }),
     });
-    expect(fills[0].state).toBe('fronted');
+    expect(events[0].state).toBe('fronted');
+    expect(events[0].frontTxHash).toBe('0xfront');
   });
 });
 
@@ -526,7 +644,9 @@ describe('serveInstantFills (solver flow helper)', () => {
     let resolveDone: () => void;
     const done = new Promise<void>((r) => { resolveDone = r; });
     hl.serveInstantFills(
-      async (fill) => `0xfront-for-${fill.id}`,
+      // The event carries the fill id as `fillId` (no `id` field exists
+      // on InstantFillRequested).
+      async (event) => `0xfront-for-${event.fillId}`,
       { onFronted: (f) => { frontedFills.push(f); resolveDone(); } },
     );
 
@@ -534,7 +654,7 @@ describe('serveInstantFills (solver flow helper)', () => {
     ws.emit('open');
     ws.emit('message', { data: JSON.stringify({ type: 'connection_ack' }) });
     ws.emit('message', {
-      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillRequested: FILL } } }),
+      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillRequested: REQUESTED_EVENT } } }),
     });
     await done;
 
@@ -554,24 +674,24 @@ describe('serveInstantFills (solver flow helper)', () => {
       webSocket: FakeWebSocket as unknown as WebSocketConstructor,
     });
 
-    const seen: Array<{ err: Error; fill?: InstantFill }> = [];
+    const seen: Array<{ err: Error; event?: InstantFillRequestedEvent }> = [];
     let resolveDone: () => void;
     const done = new Promise<void>((r) => { resolveDone = r; });
     hl.serveInstantFills(
       async () => { throw new Error('vault empty'); },
-      { onError: (err, fill) => { seen.push({ err, fill }); resolveDone(); } },
+      { onError: (err, event) => { seen.push({ err, event }); resolveDone(); } },
     );
 
     const ws = FakeWebSocket.instances[0];
     ws.emit('open');
     ws.emit('message', { data: JSON.stringify({ type: 'connection_ack' }) });
     ws.emit('message', {
-      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillRequested: FILL } } }),
+      data: JSON.stringify({ type: 'next', id: '1', payload: { data: { instantFillRequested: REQUESTED_EVENT } } }),
     });
     await done;
 
     expect(seen[0].err.message).toBe('vault empty');
-    expect(seen[0].fill?.id).toBe('fill-1');
+    expect(seen[0].event?.fillId).toBe('fill-1');
     expect(ws.closed).toBe(false); // subscription stays alive
   });
 });

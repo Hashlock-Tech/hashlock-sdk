@@ -14,11 +14,17 @@ export {
   classifyInstantFillError,
   InstantFillOrphanedError,
   INSTANT_FILL_FIELDS,
+  INSTANT_FILL_REQUESTED_FIELDS,
+  INSTANT_FILL_FRONTED_FIELDS,
+  TRUST_LEVEL_TO_SCORE,
 } from './instant.js';
 export type {
   InstantFill,
   InstantFillState,
+  InstantFillRequestedEvent,
+  InstantFillFrontedEvent,
   AgentPolicy,
+  AgentPolicyWire,
   TrustLevel,
   PolicyPresetName,
   InstantFillFallback,

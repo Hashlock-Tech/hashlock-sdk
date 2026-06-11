@@ -3,11 +3,19 @@ import { warnIfExperimental } from './experimental.js';
 import { HashLockError } from './errors.js';
 import {
   INSTANT_FILL_FIELDS,
+  INSTANT_FILL_REQUESTED_FIELDS,
+  INSTANT_FILL_FRONTED_FIELDS,
   InstantFillOrphanedError,
   classifyInstantFillError,
   sanitizeAgentPolicy,
 } from './instant.js';
-import type { AgentPolicy, InstantFill, InstantTakerResult } from './instant.js';
+import type {
+  AgentPolicy,
+  InstantFill,
+  InstantFillRequestedEvent,
+  InstantFillFrontedEvent,
+  InstantTakerResult,
+} from './instant.js';
 import {
   deriveWsEndpoint,
   subscribeOverWebSocket,
@@ -199,6 +207,11 @@ export class HashLock {
    * entirely) and the backend treats it as routing advice only.
    * Use `policyPresets.instant / .balanced / .trustless` or spread
    * your own: `{ ...policyPresets.balanced, maxFeeBps: 30 }`.
+   *
+   * WIRE NOTE: the schema's `AgentPolicyInput.minTrust` is `Int`
+   * (a 0-100 trust score) — a `TrustLevel` string is converted via
+   * `TRUST_LEVEL_TO_SCORE` (low→0, med→50, max→100) before sending;
+   * raw 0-100 numbers are floored/clamped. See `sanitizeAgentPolicy`.
    */
   async acceptQuote(quoteId: string, policy?: AgentPolicy): Promise<Quote> {
     const sanitized = sanitizeAgentPolicy(policy);
@@ -352,23 +365,40 @@ export class HashLock {
    * Solver side: subscribe to instant-fill requests against YOUR
    * quotes (server scopes the stream by the authenticated maker).
    * Requires a WebSocket-capable runtime (see `HashLockConfig.webSocket`).
+   *
+   * The payload is `InstantFillRequestedEvent` (fillId/quoteId/rfqId/
+   * state/amountWei/createdAt) — NOT the `InstantFill` mutation type;
+   * the fill id arrives as `fillId`.
    */
   onInstantFillRequested(
-    onFill: (fill: InstantFill) => void,
+    onFill: (event: InstantFillRequestedEvent) => void,
     opts?: { onError?: (err: Error) => void; onComplete?: () => void },
   ): SubscriptionHandle {
-    return this.subscribeInstantFill('instantFillRequested', onFill, opts);
+    return this.subscribeInstantFill(
+      'instantFillRequested',
+      INSTANT_FILL_REQUESTED_FIELDS,
+      onFill,
+      opts,
+    );
   }
 
   /**
    * Taker side: subscribe to fronting notifications for YOUR
    * instant fills (server scopes the stream by the authenticated taker).
+   *
+   * The payload is `InstantFillFrontedEvent` (fillId/quoteId/rfqId/
+   * tradeId/state/amountWei/frontTxHash/frontedAt).
    */
   onInstantFillFronted(
-    onFill: (fill: InstantFill) => void,
+    onFill: (event: InstantFillFrontedEvent) => void,
     opts?: { onError?: (err: Error) => void; onComplete?: () => void },
   ): SubscriptionHandle {
-    return this.subscribeInstantFill('instantFillFronted', onFill, opts);
+    return this.subscribeInstantFill(
+      'instantFillFronted',
+      INSTANT_FILL_FRONTED_FIELDS,
+      onFill,
+      opts,
+    );
   }
 
   /**
@@ -378,30 +408,30 @@ export class HashLock {
    *
    * @example
    * ```ts
-   * const handle = hl.serveInstantFills(async (fill) => {
-   *   const txHash = await vault.front(fill.quoteId, BigInt(fill.amountWei));
+   * const handle = hl.serveInstantFills(async (event) => {
+   *   const txHash = await vault.front(event.quoteId, BigInt(event.amountWei));
    *   return txHash;
    * }, { onFronted: (f) => console.log('fronted', f.id) });
    * ```
    */
   serveInstantFills(
-    front: (fill: InstantFill) => Promise<string>,
+    front: (event: InstantFillRequestedEvent) => Promise<string>,
     opts?: {
       onFronted?: (fill: InstantFill) => void;
-      onError?: (err: Error, fill?: InstantFill) => void;
+      onError?: (err: Error, event?: InstantFillRequestedEvent) => void;
       onComplete?: () => void;
     },
   ): SubscriptionHandle {
     return this.onInstantFillRequested(
-      (fill) => {
+      (event) => {
         void (async () => {
           try {
-            const txHash = await front(fill);
-            const updated = await this.markInstantFillFronted(fill.id, txHash);
+            const txHash = await front(event);
+            const updated = await this.markInstantFillFronted(event.fillId, txHash);
             opts?.onFronted?.(updated);
           } catch (err) {
             const e = err instanceof Error ? err : new Error(String(err));
-            opts?.onError?.(e, fill);
+            opts?.onError?.(e, event);
           }
         })();
       },
@@ -409,9 +439,10 @@ export class HashLock {
     );
   }
 
-  private subscribeInstantFill(
+  private subscribeInstantFill<T>(
     field: 'instantFillRequested' | 'instantFillFronted',
-    onFill: (fill: InstantFill) => void,
+    selection: string,
+    onFill: (event: T) => void,
     opts?: { onError?: (err: Error) => void; onComplete?: () => void },
   ): SubscriptionHandle {
     const ctor =
@@ -426,11 +457,11 @@ export class HashLock {
       );
     }
     const opName = field === 'instantFillRequested' ? 'InstantFillRequested' : 'InstantFillFronted';
-    return subscribeOverWebSocket<Record<typeof field, InstantFill>>({
+    return subscribeOverWebSocket<Record<string, T>>({
       url: this.config.wsEndpoint ?? deriveWsEndpoint(this.config.endpoint),
       webSocket: ctor,
       token: this.client.getAccessToken(),
-      query: `subscription ${opName} { ${field} { ${INSTANT_FILL_FIELDS} } }`,
+      query: `subscription ${opName} { ${field} { ${selection} } }`,
       onData: (data) => {
         const fill = data[field];
         if (fill) onFill(fill);

@@ -26,8 +26,8 @@ flag is off.
   to the standard path); flow helper
   `requestInstantFillAndAccept(rfqId, quoteId, { policy })` enforcing
   the canonical order (fill succeeds → accept) with typed fallbacks:
-  `INSTANT_FILL_DISABLED` / lane-409 (`metadata.lane`) /
-  already-requested-409 → automatic standard `acceptQuote`; fill OK +
+  `INSTANT_FILL_DISABLED` / lane conflict (`extensions.lane`) /
+  already-requested → automatic standard `acceptQuote`; fill OK +
   accept FAIL → `fill_orphaned` result carrying
   `InstantFillOrphanedError`, recoverable via the accept-only
   `retryAcceptAfterInstantFill(fill)` (never re-requests the fill —
@@ -45,10 +45,67 @@ flag is off.
   `.balanced` (`minTrust: 'med'`) / `.trustless` (`minTrust: 'max'`)
   — 1:1 with the design §13.1 human-slider table.
 - `GraphQLError.errors[]` entries now preserve the server's
-  `extensions` (code / http.status / metadata) for typed
+  `extensions` (code / flattened metadata) for typed
   classification (`classifyInstantFillError`).
 - 35 new tests (taker decision table, error classification, policy
   sanitization, ws handshake/subscription lifecycle, solver serve loop).
+
+### Fixed — schema drift (pre-release; 0.3.0 was never tagged/published)
+
+The initial instant surface was written from the design brief instead of
+the real SDL; verification against the main repo's `origin/main` schema
+found two confirmed drifts, fixed here BEFORE any release:
+
+- **Subscription payload types** — `instantFillRequested` /
+  `instantFillFronted` deliver dedicated event types, NOT `InstantFill`.
+  The SDK previously selected `id … frontTxHash frontedAt createdAt` on
+  both, which the server rejects (`Cannot query field "id" on type
+  "InstantFillRequested"`). Now: `InstantFillRequestedEvent`
+  (`fillId quoteId rfqId state amountWei createdAt`) and
+  `InstantFillFrontedEvent` (`fillId quoteId rfqId tradeId state
+  amountWei frontTxHash frontedAt`), with matching selection constants
+  `INSTANT_FILL_REQUESTED_FIELDS` / `INSTANT_FILL_FRONTED_FIELDS`.
+  `onInstantFillRequested` / `onInstantFillFronted` /
+  `serveInstantFills` callbacks are typed accordingly, and
+  `serveInstantFills` now fronts via `event.fillId` (the old code read
+  `fill.id`, which does not exist on the event payload).
+- **`minTrust` wire type** — the schema's `AgentPolicyInput.minTrust`
+  is `Int` (0-100 trust score); the SDK was sending the `TrustLevel`
+  string raw, which fails GraphQL Int coercion and rejects the ENTIRE
+  `acceptQuote` (violating the "a policy can never fail the accept"
+  guarantee). `sanitizeAgentPolicy` now returns the wire shape
+  (`AgentPolicyWire`, all fields integers): `TrustLevel` maps via
+  `TRUST_LEVEL_TO_SCORE` (low→0, med→50, max→100 — med passes the
+  backend's 50 reputation stub since the guard is `minTrust > score`;
+  max steers trustless); raw 0-100 numbers are accepted, floored and
+  clamped; `maxFeeBps` clamps to 0-10000 and `maxLatencyMs` to the
+  32-bit Int range for coercion safety.
+- **`classifyInstantFillError` wire shape** — verified against the
+  backend pipeline (trade-service `maskTradeError` + gateway
+  formatter): `HashlockError` serializes as
+  `extensions: { ...metadata, code, retryable }` — metadata FLATTENED,
+  HTTP status NEVER serialized. The classifier now reads the lane from
+  `extensions.lane` (with `extensions.metadata.lane` as a defensive
+  fallback) and detects already-requested via
+  `code === 'INVALID_STATE_TRANSITION'` + the "already requested"
+  message; the dead `extensions.status` / `http.status` / `CONFLICT`
+  paths were removed. Other `INVALID_STATE_TRANSITION` errors (quote no
+  longer firm / expired) classify as `null` and are rethrown.
+
+### Added — permanent drift guard
+
+- `test/fixtures/schema.graphql` + `schema.subscriptions.graphql`:
+  vendored authoritative SDL from the main repo (source path, git ref
+  and commit SHA recorded in the fixture headers). Refresh with
+  `node scripts/vendor-schema.mjs <main-repo-path>`.
+- `src/__tests__/schema-validate.test.ts`: every operation string the
+  SDK sends (captured from the real code paths, including the ws
+  subscribe frames) is `validate()`d against the vendored SDL using the
+  `graphql` package (devDependency ONLY — runtime stays zero-dependency).
+- Known pre-existing legacy drift documented (skipped test, not fixed
+  to avoid breaking the v0.1.x public shape): `getHTLCStatus` selects
+  `initiatorHTLC`/`counterpartyHTLC`, but the schema's
+  `HTLCStatusResult` is flat — use `getHTLCs(tradeId)` instead.
 
 ### Compatibility
 - **Backward compatible / additive.** `acceptQuote` without a policy

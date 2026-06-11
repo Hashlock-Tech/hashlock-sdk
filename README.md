@@ -141,16 +141,17 @@ Decision table implemented by the helper:
 |---|---|---|
 | OK | OK | `{ kind: 'instant', fill, quote }` |
 | `INSTANT_FILL_DISABLED` | OK (fallback) | `{ kind: 'standard', reason: 'disabled', quote }` |
-| 409 + `metadata.lane` | OK (fallback) | `{ kind: 'standard', reason: 'lane_conflict', lane, quote }` |
-| 409 (already requested) | OK (fallback) | `{ kind: 'standard', reason: 'already_requested', quote }` |
+| lane conflict (`extensions.lane`) | OK (fallback) | `{ kind: 'standard', reason: 'lane_conflict', lane, quote }` |
+| already requested (exactly-once) | OK (fallback) | `{ kind: 'standard', reason: 'already_requested', quote }` |
 | any other error | — (not attempted) | **thrown** (auth/network/unknown errors are never swallowed) |
 | OK | FAIL | `{ kind: 'fill_orphaned', fill, error: InstantFillOrphanedError }` |
 
-Takers can watch for the fronting payment:
+Takers can watch for the fronting payment (payload:
+`InstantFillFrontedEvent` — the fill id arrives as `fillId`):
 
 ```ts
-const handle = hl.onInstantFillFronted((fill) => {
-  console.log('fronted!', fill.frontTxHash);
+const handle = hl.onInstantFillFronted((event) => {
+  console.log('fronted!', event.fillId, event.frontTxHash);
 });
 // later: handle.unsubscribe();
 ```
@@ -169,20 +170,22 @@ const quote = await hl.submitQuote({
   solverVaultAddr: '0xYourVault...',
 });
 
-// 2. Watch for accepted instant fills and front them.
+// 2. Watch for accepted instant fills and front them. The subscription
+//    payload is InstantFillRequestedEvent — fillId/quoteId/rfqId/state/
+//    amountWei/createdAt (NOT the InstantFill mutation type).
 //    serveInstantFills = subscribe(instantFillRequested) + auto markInstantFillFronted
-const handle = hl.serveInstantFills(async (fill) => {
-  const txHash = await vault.front(fill.quoteId, BigInt(fill.amountWei));
-  return txHash; // SDK calls markInstantFillFronted(fill.id, txHash) for you
+const handle = hl.serveInstantFills(async (event) => {
+  const txHash = await vault.front(event.quoteId, BigInt(event.amountWei));
+  return txHash; // SDK calls markInstantFillFronted(event.fillId, txHash) for you
 }, {
   onFronted: (fill) => console.log('fronted', fill.id),
-  onError: (err, fill) => console.error('fronting failed', fill?.id, err),
+  onError: (err, event) => console.error('fronting failed', event?.fillId, err),
 });
 
 // Or drive the two halves manually:
-hl.onInstantFillRequested(async (fill) => {
-  const txHash = await vault.front(fill.quoteId, BigInt(fill.amountWei));
-  await hl.markInstantFillFronted(fill.id, txHash);
+hl.onInstantFillRequested(async (event) => {
+  const txHash = await vault.front(event.quoteId, BigInt(event.amountWei));
+  await hl.markInstantFillFronted(event.fillId, txHash);
 });
 ```
 
@@ -211,6 +214,24 @@ Presets mirror the human speed slider 1:1 (single engine, two adapters):
 ```ts
 await hl.acceptQuote(quote.id, { ...policyPresets.balanced, maxFeeBps: 30 });
 ```
+
+**`minTrust` on the wire:** the schema's `AgentPolicyInput.minTrust` is an
+`Int` (a 0–100 solver trust/reputation score), so the SDK converts a
+`TrustLevel` string before sending (`TRUST_LEVEL_TO_SCORE`). The backend
+guard is `minTrust > solverReputation` (reputation stubbed at 50 until the
+reputation oracle lands):
+
+| `TrustLevel` | Int sent | Effect against the 50 stub |
+|---|---|---|
+| `'low'` | 0 | never constrains |
+| `'med'` | 50 | passes (50 > 50 is false) — Lane A allowed |
+| `'max'` | 100 | unmet → steers to the trustless pure-HTLC path |
+
+You may also pass a raw 0–100 integer directly
+(`{ minTrust: 75 }` — floored and clamped). Strings never reach the wire:
+an unconverted `'med'` would fail GraphQL `Int` coercion and reject the
+**entire** accept, which would break the "a policy can never fail the
+accept" guarantee.
 
 ### Flag-off behaviour
 
@@ -383,6 +404,28 @@ const hl = new HashLock({
 | HashedTimelockEther | [`0x0CEDC56b17d714dA044954EE26F38e90eC10434A`](https://etherscan.io/address/0x0cedc56b17d714da044954ee26f38e90ec10434a) |
 | HashedTimelockEtherFee | [`0xfBAEA1423b5FBeCE89998da6820902fD8f159014`](https://etherscan.io/address/0xfbaea1423b5fbece89998da6820902fd8f159014) |
 | HashedTimelockERC20Fee | [`0x4B65490D140Bab3DB828C2386e21646Ed8c4D072`](https://etherscan.io/address/0x4b65490d140bab3db828c2386e21646ed8c4d072) |
+
+## Development — vendored schema & drift guard
+
+Every GraphQL operation string the SDK sends is validated in CI against a
+**vendored copy of the authoritative trade-service SDL**
+(`test/fixtures/schema.graphql` for queries/mutations,
+`test/fixtures/schema.subscriptions.graphql` for the graphql-ws
+subscription schema) — see `src/__tests__/schema-validate.test.ts`. The
+`graphql` package is a **devDependency only**; the published SDK keeps zero
+runtime dependencies.
+
+When the backend schema changes, refresh the fixtures from the main repo's
+`origin/main` and re-run the tests:
+
+```bash
+git -C ../Cayman-Hashlock fetch origin
+node scripts/vendor-schema.mjs ../Cayman-Hashlock   # optional: [path] [git-ref]
+pnpm test
+```
+
+The fixture headers record the source path, git ref and commit SHA they
+were vendored from. Never edit the fixtures by hand.
 
 ## License
 

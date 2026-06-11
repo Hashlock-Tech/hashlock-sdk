@@ -57,14 +57,92 @@ export interface InstantFill {
   createdAt: string;
 }
 
-/** Shared GraphQL selection set for InstantFill payloads. */
+/** GraphQL selection set for the `InstantFill` type (mutation payloads:
+ *  requestInstantFill / markInstantFillFronted). */
 export const INSTANT_FILL_FIELDS =
   'id quoteId tradeId state amountWei frontTxHash frontedAt createdAt';
+
+// ─── Subscription event payloads ─────────────────────────────
+//
+// The subscription payload types are NOT the InstantFill type — the
+// schema defines dedicated event types with different fields:
+//
+//   type InstantFillRequested { fillId quoteId rfqId state amountWei createdAt }
+//   type InstantFillFronted   { fillId quoteId rfqId tradeId state amountWei frontTxHash frontedAt }
+//
+// (no `id` — the fill id arrives as `fillId`; Requested has no
+// tradeId/frontTxHash/frontedAt; Fronted has no createdAt.)
+// Kept 1:1 with backend/services/trade-service/src/schema.ts
+// SUBSCRIPTION_SDL; guarded by src/__tests__/schema-validate.test.ts
+// against the vendored SDL in test/fixtures/.
+
+/** Selection set for the `InstantFillRequested` subscription payload. */
+export const INSTANT_FILL_REQUESTED_FIELDS =
+  'fillId quoteId rfqId state amountWei createdAt';
+
+/** Selection set for the `InstantFillFronted` subscription payload. */
+export const INSTANT_FILL_FRONTED_FIELDS =
+  'fillId quoteId rfqId tradeId state amountWei frontTxHash frontedAt';
+
+/**
+ * Payload of the solver-scoped `instantFillRequested` subscription:
+ * a taker requested an instant fill on one of YOUR quotes.
+ * Use `fillId` (not `id`) when calling `markInstantFillFronted`.
+ */
+export interface InstantFillRequestedEvent {
+  fillId: string;
+  quoteId: string;
+  rfqId: string;
+  /** Always 'committed' at request time. */
+  state: InstantFillState;
+  /** Committed amount in the asset's smallest unit (decimal string —
+   *  full uint256 range; never convert to `number`). */
+  amountWei: string;
+  createdAt: string;
+}
+
+/**
+ * Payload of the taker-scoped `instantFillFronted` subscription:
+ * the solver marked one of YOUR requested fills as fronted.
+ */
+export interface InstantFillFrontedEvent {
+  fillId: string;
+  quoteId: string;
+  rfqId: string;
+  /** Trade materialised from the accepted quote (fronting requires the
+   *  link, but the schema types it nullable). */
+  tradeId: string | null;
+  /** Always 'fronted' at publish time. */
+  state: InstantFillState;
+  /** Committed amount in the asset's smallest unit (decimal string). */
+  amountWei: string;
+  /** EVM tx hash of the solver vault's fronting transfer. */
+  frontTxHash: string;
+  frontedAt: string;
+}
 
 // ─── Agent policy (single engine, two adapters) ──────────────
 
 /** Trust requirement level — mirrors the design §13.1 preset table. */
 export type TrustLevel = 'low' | 'med' | 'max';
+
+/**
+ * Wire mapping for `TrustLevel` → the schema's `AgentPolicyInput.minTrust:
+ * Int` (a 0-100 solver trust/reputation score). The backend compares
+ * `minTrust > solverReputation` (reputation stubbed at 50 until the
+ * reputation oracle lands):
+ *
+ * | TrustLevel | Int sent | Effect vs the 50 stub                         |
+ * |------------|----------|-----------------------------------------------|
+ * | `low`      | 0        | never constrains                              |
+ * | `med`      | 50       | passes the stub (50 > 50 is false)            |
+ * | `max`      | 100      | unmet → steers to the trustless pure-HTLC path |
+ */
+export const TRUST_LEVEL_TO_SCORE: Record<TrustLevel, number> = {
+  low: 0,
+  med: 50,
+  max: 100,
+};
 
 /**
  * Declarative settlement preference attached to `acceptQuote`.
@@ -78,10 +156,29 @@ export type TrustLevel = 'low' | 'med' | 'max';
 export interface AgentPolicy {
   /** Max acceptable settlement latency in milliseconds. */
   maxLatencyMs?: number;
-  /** Max acceptable total fee in basis points. */
+  /** Max acceptable total fee in basis points (0-10000). */
   maxFeeBps?: number;
-  /** Minimum trust level: 'max' = pure-HTLC trustless lane. */
-  minTrust?: TrustLevel;
+  /**
+   * Minimum solver trust: either a `TrustLevel` preset name or a raw
+   * 0-100 integer score. Either way the SDK sends an Int on the wire
+   * (the schema's `AgentPolicyInput.minTrust` is `Int`) — see
+   * `TRUST_LEVEL_TO_SCORE` for the preset mapping. `'max'`/100 steers
+   * to the trustless pure-HTLC lane.
+   */
+  minTrust?: TrustLevel | number;
+}
+
+/**
+ * The exact shape sent as the `policy` GraphQL variable — every field
+ * an integer, matching `AgentPolicyInput { maxLatencyMs: Int,
+ * maxFeeBps: Int, minTrust: Int }`. A `TrustLevel` string here would
+ * fail GraphQL Int coercion and reject the WHOLE acceptQuote, which
+ * is why `sanitizeAgentPolicy` always converts before send.
+ */
+export interface AgentPolicyWire {
+  maxLatencyMs?: number;
+  maxFeeBps?: number;
+  minTrust?: number;
 }
 
 /**
@@ -106,25 +203,49 @@ export const policyPresets = {
 
 export type PolicyPresetName = keyof typeof policyPresets;
 
+/** GraphQL `Int` is a signed 32-bit integer — anything above this fails
+ *  wire coercion and would reject the whole mutation. */
+const GRAPHQL_INT_MAX = 2_147_483_647;
+
+/** Floor to an integer and clamp into [min, max]; non-finite → undefined. */
+function toBoundedInt(v: unknown, min: number, max: number): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  return Math.min(Math.max(Math.floor(v), min), max);
+}
+
 /**
- * Reduce an arbitrary value to a valid `AgentPolicy`, or `undefined`
- * when nothing valid remains. Unknown keys and wrongly-typed values
- * are dropped (never thrown) — this is what guarantees, at the SDK
- * layer, that a broken policy can never fail an `acceptQuote`.
+ * Reduce an arbitrary value to the wire policy (`AgentPolicyWire` — all
+ * fields integers), or `undefined` when nothing valid remains. Unknown
+ * keys and wrongly-typed values are dropped (never thrown) — this is
+ * what guarantees, at the SDK layer, that a broken policy can never
+ * fail an `acceptQuote`:
+ *
+ * - the schema types every `AgentPolicyInput` field as `Int`, so a
+ *   non-integer (or a `TrustLevel` string) on the wire would fail
+ *   GraphQL coercion and reject the ENTIRE mutation;
+ * - therefore `minTrust` is converted via `TRUST_LEVEL_TO_SCORE`
+ *   (low→0, med→50, max→100); a raw numeric score is accepted too and
+ *   floored/clamped into the backend's 0-100 range;
+ * - `maxFeeBps` is floored/clamped into the backend's 0-10000 range,
+ *   `maxLatencyMs` floored and capped at the 32-bit Int maximum.
  */
-export function sanitizeAgentPolicy(policy: unknown): AgentPolicy | undefined {
+export function sanitizeAgentPolicy(policy: unknown): AgentPolicyWire | undefined {
   if (policy === null || typeof policy !== 'object') return undefined;
   const p = policy as Record<string, unknown>;
-  const out: AgentPolicy = {};
+  const out: AgentPolicyWire = {};
 
   if (typeof p.maxLatencyMs === 'number' && Number.isFinite(p.maxLatencyMs) && p.maxLatencyMs > 0) {
-    out.maxLatencyMs = p.maxLatencyMs;
+    out.maxLatencyMs = toBoundedInt(p.maxLatencyMs, 0, GRAPHQL_INT_MAX);
   }
-  if (typeof p.maxFeeBps === 'number' && Number.isFinite(p.maxFeeBps) && p.maxFeeBps >= 0) {
-    out.maxFeeBps = p.maxFeeBps;
+  const maxFeeBps = toBoundedInt(p.maxFeeBps, 0, 10_000);
+  if (maxFeeBps !== undefined) {
+    out.maxFeeBps = maxFeeBps;
   }
   if (p.minTrust === 'low' || p.minTrust === 'med' || p.minTrust === 'max') {
-    out.minTrust = p.minTrust;
+    out.minTrust = TRUST_LEVEL_TO_SCORE[p.minTrust];
+  } else {
+    const minTrust = toBoundedInt(p.minTrust, 0, 100);
+    if (minTrust !== undefined) out.minTrust = minTrust;
   }
 
   return Object.keys(out).length > 0 ? out : undefined;
@@ -137,10 +258,10 @@ export function sanitizeAgentPolicy(policy: unknown): AgentPolicy | undefined {
  * standard accept path:
  *
  * - `disabled`          — feature flag off (`INSTANT_FILL_DISABLED`)
- * - `lane_conflict`     — 409 with `metadata.lane`: the quote routed
- *                          to a lane that cannot instant-fill
- * - `already_requested` — 409: an instant fill already exists for
- *                          this quote (exactly-once per quote)
+ * - `lane_conflict`     — the settlement router classified the intent
+ *                          into a non-instant lane (`extensions.lane`)
+ * - `already_requested` — an instant fill already exists for this
+ *                          quote (exactly-once per quote)
  */
 export type InstantFillFallbackReason =
   | 'disabled'
@@ -153,20 +274,31 @@ export interface InstantFillFallback {
   lane?: string;
 }
 
-function extractHttpStatus(ext: Record<string, unknown>): number | undefined {
-  if (typeof ext.status === 'number') return ext.status;
-  const http = ext.http;
-  if (http && typeof http === 'object' && typeof (http as Record<string, unknown>).status === 'number') {
-    return (http as Record<string, unknown>).status as number;
-  }
-  return undefined;
-}
-
 /**
  * Classify a `requestInstantFill` failure into a typed fallback
  * reason, or `null` when the error is NOT an expected instant-fill
  * refusal (auth, network, validation, …) and must be rethrown
  * instead of silently falling back.
+ *
+ * WIRE SHAPE (verified against the backend error pipeline):
+ * `HashlockError` crosses trade-service's yoga `maskTradeError` and the
+ * gateway formatter as `extensions: { ...metadata, code, retryable }` —
+ * the metadata is FLATTENED into extensions and the HTTP statusCode is
+ * NEVER serialized. So on the wire:
+ *
+ * - flag off          → `extensions.code = 'INSTANT_FILL_DISABLED'`
+ *                       (a bare GraphQLError; survives the gateway's
+ *                       prod masking, which preserves the code);
+ * - lane conflict     → `extensions.code = 'INVALID_INPUT'` with the
+ *                       lane at `extensions.lane` (flattened metadata);
+ * - already requested → `extensions.code = 'INVALID_STATE_TRANSITION'`
+ *                       with message "Instant fill already requested
+ *                       for this quote".
+ *
+ * Other `INVALID_STATE_TRANSITION` errors (quote no longer firm /
+ * expired) deliberately classify as `null`: the standard accept would
+ * fail on the same dead quote, so falling back silently would only
+ * obscure the real error.
  */
 export function classifyInstantFillError(err: unknown): InstantFillFallback | null {
   if (!(err instanceof GraphQLError)) return null;
@@ -181,16 +313,20 @@ export function classifyInstantFillError(err: unknown): InstantFillFallback | nu
       return { reason: 'disabled' };
     }
 
-    // Lane conflict — 409 carrying metadata.lane
+    // Lane conflict — HashlockError metadata { lane } is flattened to
+    // extensions.lane by the error formatter (extensions.metadata.lane
+    // kept as a defensive fallback for non-flattening transports).
     const metadata = (ext.metadata ?? {}) as Record<string, unknown>;
-    const lane = typeof metadata.lane === 'string' ? metadata.lane : undefined;
+    const lane =
+      typeof ext.lane === 'string' ? ext.lane
+      : typeof metadata.lane === 'string' ? metadata.lane
+      : undefined;
     if (lane !== undefined) {
       return { reason: 'lane_conflict', lane };
     }
 
-    // Already-requested — 409 without a lane (exactly-once per quote)
-    const status = extractHttpStatus(ext);
-    if (status === 409 || code === 'CONFLICT' || code === 'ALREADY_REQUESTED') {
+    // Exactly-once guard: committed fill already exists for the quote.
+    if (code === 'INVALID_STATE_TRANSITION' && /already requested/i.test(message)) {
       return { reason: 'already_requested' };
     }
   }
