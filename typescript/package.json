@@ -1,0 +1,31 @@
+{
+  "name": "@hashlock-tech/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the Hashlock Markets developer API — non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON) over sealed RFQ + HTLC.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=18" },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": ["hashlock", "atomic-swap", "htlc", "bitcoin", "cross-chain", "otc", "defi"],
+  "repository": { "type": "git", "url": "https://github.com/Hashlock-Tech/hashlock-sdk", "directory": "typescript" },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
