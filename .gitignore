@@ -1,5 +1,9 @@
 node_modules/
 dist/
+*.tsbuildinfo
+__pycache__/
+*.egg-info/
+build/
+.venv/
 .env
-coverage/
-*.tgz
+.DS_Store
