@@ -2,32 +2,62 @@ name: Release npm
 
 # Publish @hashlock-tech/sdk. Trigger: a package-scoped tag, e.g. `typescript-v1.0.0`.
 #   git tag typescript-v1.0.0 && git push origin typescript-v1.0.0
-# Uses OIDC Trusted Publishing (no long-lived token in the repo). Configure the npm trusted
-# publisher once against THIS workflow file (release-npm.yml) — see the setup instructions.
+# Build runs WITHOUT OIDC; only the minimal `publish` job holds `id-token: write` and never runs
+# untrusted install/build scripts. Uses OIDC Trusted Publishing (no long-lived token in the repo) —
+# configure the npm trusted publisher once against THIS workflow file (release-npm.yml).
 on:
   push:
     tags: ['typescript-v*']
 
 permissions:
   contents: read
-  id-token: write # OIDC → npm trusted publishing + provenance
 
 jobs:
-  publish:
-    name: Publish to npm
+  build:
+    name: Build (no OIDC)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: typescript
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#typescript-v}"
+          PKG="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package.json=$PKG"
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag $GITHUB_REF_NAME does not match package.json version $PKG"; exit 1; }
+      - run: npm install
+      - run: npm run build
+      - run: npm pack # → typescript/*.tgz (built artifact to publish)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-package
+          path: typescript/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm (OIDC)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC → npm trusted publishing + provenance
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-package
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@latest # npm >= 11.5.1 supports OIDC trusted publishing
-      - run: npm install
-      - run: npm run build
-      - run: npm publish --provenance --access public
+      # Publish the prebuilt tarball only — no untrusted install/build runs in the OIDC job.
+      - run: npm publish *.tgz --provenance --access public
         # Trusted publisher configured → no NODE_AUTH_TOKEN needed.
         # Token fallback: set env NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} and drop --provenance.
