@@ -1,0 +1,31 @@
+name: Release PyPI
+
+# Publish hashlock-sdk. Trigger: a package-scoped tag, e.g. `python-v1.0.0`.
+#   git tag python-v1.0.0 && git push origin python-v1.0.0
+# Uses OIDC Trusted Publishing (no long-lived token in the repo). Configure the PyPI trusted
+# publisher once against THIS workflow file (release-pypi.yml) — see the setup instructions.
+on:
+  push:
+    tags: ['python-v*']
+
+permissions:
+  contents: read
+  id-token: write # OIDC → PyPI trusted publishing
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install build
+      - run: python -m build
+        working-directory: python
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist
+        # Trusted publisher configured → no token needed.
+        # Token fallback: add `password: ${{ secrets.PYPI_TOKEN }}`.

@@ -1,0 +1,33 @@
+name: Release npm
+
+# Publish @hashlock-tech/sdk. Trigger: a package-scoped tag, e.g. `typescript-v1.0.0`.
+#   git tag typescript-v1.0.0 && git push origin typescript-v1.0.0
+# Uses OIDC Trusted Publishing (no long-lived token in the repo). Configure the npm trusted
+# publisher once against THIS workflow file (release-npm.yml) — see the setup instructions.
+on:
+  push:
+    tags: ['typescript-v*']
+
+permissions:
+  contents: read
+  id-token: write # OIDC → npm trusted publishing + provenance
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest # npm >= 11.5.1 supports OIDC trusted publishing
+      - run: npm install
+      - run: npm run build
+      - run: npm publish --provenance --access public
+        # Trusted publisher configured → no NODE_AUTH_TOKEN needed.
+        # Token fallback: set env NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} and drop --provenance.
