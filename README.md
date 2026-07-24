@@ -3,6 +3,11 @@
 Official TypeScript and Python SDKs for the **Hashlock Markets** developer API — non-custodial
 cross-chain atomic swaps (**BTC ↔ EVM / TRON**) over sealed RFQ + HTLC.
 
+> ⚠️ **Sandbox / testnet preview (0.x).** The SDK defaults to the public sandbox
+> (`api-dev.hashlock.markets`) and targets **testnets only** — pre-mainnet, pre-external-audit. The API
+> surface may still change before the stable `1.0` release, which will accompany mainnet. Don't use with
+> mainnet funds.
+
 - **Non-custodial.** Settlement endpoints return *unsigned* transactions. You sign with your own key or
   HSM; the server never holds your keys.
 - **Native, no bridge.** Real BTC ↔ real EVM/TRON assets, settled directly via HTLC — no wrapped tokens,
