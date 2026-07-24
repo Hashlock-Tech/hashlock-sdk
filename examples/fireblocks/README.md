@@ -9,9 +9,9 @@ sign them with an institutional custodian (Fireblocks; Copper follows the same s
 > documented references (Fireblocks Sandbox has Sepolia + BTC signet, but **not TRON Nile**). Fill in your
 > own vault id + asset ids before running.
 
-### Environment (sandbox)
+## Environment (sandbox)
 
-```
+```bash
 FIREBLOCKS_API_KEY=<API key id (UUID)>
 FIREBLOCKS_SECRET_KEY_PATH=<path to your RSA private key .key/.pem>
 FIREBLOCKS_VAULT_ACCOUNT_ID=0            # numeric string (default sandbox vault is "0")

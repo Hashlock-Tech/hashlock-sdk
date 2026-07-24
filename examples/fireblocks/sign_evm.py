@@ -42,10 +42,14 @@ def sign_via_fireblocks(tx: dict) -> str:
     tx_id = resp["id"]
     while True:
         t = fireblocks.get_transaction_by_id(tx_id)
-        if t.get("txHash"):
+        status = t.get("status")
+        # Return only once the tx is mined (CONFIRMING) or fully confirmed (COMPLETED) — NOT on the mere
+        # presence of a txHash — so the dependent createSwap isn't submitted before this approve lands
+        # (createSwap's transferFrom needs the approve's allowance on-chain).
+        if status in ("CONFIRMING", "COMPLETED") and t.get("txHash"):
             return t["txHash"]
-        if t["status"] in ("FAILED", "BLOCKED", "CANCELLED", "REJECTED"):
-            raise RuntimeError(f"Fireblocks tx {tx_id} {t['status']}: {t.get('subStatus')}")
+        if status in ("FAILED", "BLOCKED", "CANCELLED", "REJECTED"):
+            raise RuntimeError(f"Fireblocks tx {tx_id} {status}: {t.get('subStatus')}")
         time.sleep(3)
 
 

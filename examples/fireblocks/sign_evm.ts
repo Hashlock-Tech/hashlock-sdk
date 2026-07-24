@@ -29,10 +29,12 @@ async function signViaFireblocks(tx: { to: string; data: string; value?: string 
     note: 'Hashlock HTLC settlement',
   });
 
-  // Poll to completion. Fireblocks broadcasts; the tx hash appears on SUBMITTED/COMPLETED.
+  // Return only once the tx is mined (CONFIRMING) or fully confirmed (COMPLETED) — NOT on the mere
+  // presence of a txHash — so the dependent createSwap isn't submitted before this approve lands
+  // (createSwap's transferFrom needs the approve's allowance on-chain).
   for (;;) {
     const t = await fireblocks.getTransactionById(id);
-    if (t.txHash) return t.txHash;
+    if ((t.status === TransactionStatus.CONFIRMING || t.status === TransactionStatus.COMPLETED) && t.txHash) return t.txHash;
     if ([TransactionStatus.FAILED, TransactionStatus.BLOCKED, TransactionStatus.CANCELLED, TransactionStatus.REJECTED].includes(t.status)) {
       throw new Error(`Fireblocks tx ${id} ${t.status}: ${t.subStatus}`);
     }
