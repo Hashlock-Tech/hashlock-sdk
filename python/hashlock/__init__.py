@@ -5,4 +5,4 @@ from .secret import new_secret, sha256_hex
 from .webhooks import verify_webhook
 
 __all__ = ["HashlockClient", "HashlockError", "new_secret", "sha256_hex", "verify_webhook"]
-__version__ = "1.0.0"
+__version__ = "0.4.0"

@@ -1,6 +1,6 @@
 {
   "name": "@hashlock-tech/sdk",
-  "version": "1.0.0",
+  "version": "0.4.0",
   "description": "TypeScript SDK for the Hashlock Markets developer API — non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON) over sealed RFQ + HTLC.",
   "license": "MIT",
   "type": "module",

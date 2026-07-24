@@ -3,6 +3,9 @@
 Python SDK for the [Hashlock Markets](https://github.com/Hashlock-Tech/hashlock-sdk) developer API —
 non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON). Python 3.9+, built on `httpx`.
 
+> ⚠️ **Sandbox / testnet preview (0.x)** — defaults to `api-dev.hashlock.markets`, testnets only,
+> pre-mainnet. The API may change before the stable `1.0`. Not for mainnet funds.
+
 ```bash
 pip install hashlock-sdk          # add [ws] for the maker WebSocket feed: hashlock-sdk[ws]
 ```
