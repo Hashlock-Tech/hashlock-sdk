@@ -4,7 +4,9 @@
  *
  *   npm i @hashlock-tech/sdk fireblocks-sdk
  *
- * Not live-tested — set your vault account id + asset id and validate on a testnet vault first.
+ * The CONTRACT_CALL flow is validated live on Fireblocks Sandbox (Sepolia); the `PeerType` /
+ * `TransactionOperation` / `TransactionStatus` enums below match the current `fireblocks-sdk`. Set your
+ * own vault account id + asset id. (Python uses different symbols — see sign_evm.py / the README.)
  */
 import { HashlockClient, type EvmBuild } from '@hashlock-tech/sdk';
 import { FireblocksSDK, PeerType, TransactionOperation, TransactionStatus } from 'fireblocks-sdk';

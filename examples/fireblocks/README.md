@@ -4,8 +4,29 @@ The Hashlock developer API is **custody-agnostic**: `POST /v1/swaps/:id/legs/:le
 returns *unsigned* transactions, and you sign them with your own key material. This directory shows how to
 sign them with an institutional custodian (Fireblocks; Copper follows the same shape).
 
-> ⚠️ Reference only — documented pattern, not a live-tested integration. Fill in your vault / account IDs
-> and asset IDs, and validate against a testnet vault before production.
+> ✅ **EVM `CONTRACT_CALL` validated live** on Fireblocks Sandbox (Sepolia / `ETH_TEST5`): the unsigned
+> `approve`/`createSwap` from `/v1` signs, broadcasts, and lands on-chain. TRON and Bitcoin paths remain
+> documented references (Fireblocks Sandbox has Sepolia + BTC signet, but **not TRON Nile**). Fill in your
+> own vault id + asset ids before running.
+
+### Environment (sandbox)
+
+```
+FIREBLOCKS_API_KEY=<API key id (UUID)>
+FIREBLOCKS_SECRET_KEY_PATH=<path to your RSA private key .key/.pem>
+FIREBLOCKS_VAULT_ACCOUNT_ID=0            # numeric string (default sandbox vault is "0")
+FIREBLOCKS_BASE_URL=https://sandbox-api.fireblocks.io   # prod: https://api.fireblocks.io
+```
+
+Fund the vault from **outside** Fireblocks: add the `ETH_TEST5` asset to the vault, copy its **receive
+address**, and send testnet ETH (gas) + your ERC-20 to it from a faucet or another wallet. A `CONTRACT_CALL`
+does **not** require the ERC-20 to be a Fireblocks-recognised asset — only the on-chain balance at the vault
+address plus native `ETH_TEST5` for gas.
+
+> **Python SDK gotcha:** `fireblocks-sdk` (Python) uses top-level string constants — `VAULT_ACCOUNT`,
+> `ONE_TIME_ADDRESS`, `CONTRACT_CALL` — and `create_transaction(tx_type=…)` (not `operation=`). The
+> **JavaScript** `fireblocks-sdk` uses the enums `PeerType`, `TransactionOperation`, `TransactionStatus`
+> and `createTransaction({ operation, … })`. Both `sign_evm.py` / `sign_evm.ts` reflect their SDK's shape.
 
 ## Two signing models
 
