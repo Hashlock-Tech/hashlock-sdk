@@ -4,7 +4,9 @@
  *
  *   npm i @hashlock-tech/sdk fireblocks-sdk
  *
- * Not live-tested — set your vault account id + asset id and validate on a testnet vault first.
+ * The CONTRACT_CALL flow is validated live on Fireblocks Sandbox (Sepolia); the `PeerType` /
+ * `TransactionOperation` / `TransactionStatus` enums below match the current `fireblocks-sdk`. Set your
+ * own vault account id + asset id. (Python uses different symbols — see sign_evm.py / the README.)
  */
 import { HashlockClient, type EvmBuild } from '@hashlock-tech/sdk';
 import { FireblocksSDK, PeerType, TransactionOperation, TransactionStatus } from 'fireblocks-sdk';
@@ -27,10 +29,12 @@ async function signViaFireblocks(tx: { to: string; data: string; value?: string 
     note: 'Hashlock HTLC settlement',
   });
 
-  // Poll to completion. Fireblocks broadcasts; the tx hash appears on SUBMITTED/COMPLETED.
+  // Return only once the tx is mined (CONFIRMING) or fully confirmed (COMPLETED) — NOT on the mere
+  // presence of a txHash — so the dependent createSwap isn't submitted before this approve lands
+  // (createSwap's transferFrom needs the approve's allowance on-chain).
   for (;;) {
     const t = await fireblocks.getTransactionById(id);
-    if (t.txHash) return t.txHash;
+    if ((t.status === TransactionStatus.CONFIRMING || t.status === TransactionStatus.COMPLETED) && t.txHash) return t.txHash;
     if ([TransactionStatus.FAILED, TransactionStatus.BLOCKED, TransactionStatus.CANCELLED, TransactionStatus.REJECTED].includes(t.status)) {
       throw new Error(`Fireblocks tx ${id} ${t.status}: ${t.subStatus}`);
     }

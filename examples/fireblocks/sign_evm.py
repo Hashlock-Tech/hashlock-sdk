@@ -4,29 +4,37 @@ Fireblocks signs AND broadcasts via its own nodes, so you do NOT call client.bro
 
     pip install hashlock-sdk fireblocks-sdk
 
-Not live-tested — set your vault account id + asset id and validate on a testnet vault first.
+Validated live on Fireblocks Sandbox (Sepolia / ETH_TEST5) — the CONTRACT_CALL signs, broadcasts, and the
+approve/createSwap lands on-chain. NOTE the Python SDK's shape: peer-type/operation are top-level string
+constants (VAULT_ACCOUNT / ONE_TIME_ADDRESS / CONTRACT_CALL), and create_transaction takes `tx_type=`
+(not `operation=`). The base URL for sandbox is https://sandbox-api.fireblocks.io (prod: api.fireblocks.io);
+the vault account id is a small integer string (e.g. "0").
 """
 import os
 import time
 
-from fireblocks_sdk import FireblocksSDK, TransferPeerPath, DestinationTransferPeerPath, PeerType
+from fireblocks_sdk import CONTRACT_CALL, ONE_TIME_ADDRESS, VAULT_ACCOUNT, DestinationTransferPeerPath, FireblocksSDK, TransferPeerPath
 
 from hashlock import HashlockClient
 
 client = HashlockClient(api_key=os.environ["HASHLOCK_API_KEY"])
-fireblocks = FireblocksSDK(os.environ["FIREBLOCKS_API_SECRET"], os.environ["FIREBLOCKS_API_KEY"])
+fireblocks = FireblocksSDK(
+    private_key=open(os.environ["FIREBLOCKS_SECRET_KEY_PATH"]).read(),
+    api_key=os.environ["FIREBLOCKS_API_KEY"],
+    api_base_url=os.environ.get("FIREBLOCKS_BASE_URL", "https://sandbox-api.fireblocks.io"),
+)
 
-VAULT_ACCOUNT_ID = os.environ["FIREBLOCKS_VAULT_ID"]
+VAULT_ACCOUNT_ID = os.environ["FIREBLOCKS_VAULT_ACCOUNT_ID"]  # numeric string, e.g. "0"
 ASSET_ID = "ETH_TEST5"  # Fireblocks asset id for the target chain (Sepolia here)
 
 
 def sign_via_fireblocks(tx: dict) -> str:
     """Submit one unsigned EVM tx as a Fireblocks contract call; return the on-chain hash."""
     resp = fireblocks.create_transaction(
-        operation="CONTRACT_CALL",
+        tx_type=CONTRACT_CALL,
         asset_id=ASSET_ID,
-        source=TransferPeerPath(PeerType.VAULT_ACCOUNT, VAULT_ACCOUNT_ID),
-        destination=DestinationTransferPeerPath(PeerType.ONE_TIME_ADDRESS, one_time_address={"address": tx["to"]}),
+        source=TransferPeerPath(VAULT_ACCOUNT, VAULT_ACCOUNT_ID),
+        destination=DestinationTransferPeerPath(ONE_TIME_ADDRESS, one_time_address={"address": tx["to"]}),
         amount=str(int(tx.get("value") or "0")),  # wei; "0" for approve / createSwap
         extra_parameters={"contractCallData": tx["data"]},
         note="Hashlock HTLC settlement",
@@ -34,10 +42,14 @@ def sign_via_fireblocks(tx: dict) -> str:
     tx_id = resp["id"]
     while True:
         t = fireblocks.get_transaction_by_id(tx_id)
-        if t.get("txHash"):
+        status = t.get("status")
+        # Return only once the tx is mined (CONFIRMING) or fully confirmed (COMPLETED) — NOT on the mere
+        # presence of a txHash — so the dependent createSwap isn't submitted before this approve lands
+        # (createSwap's transferFrom needs the approve's allowance on-chain).
+        if status in ("CONFIRMING", "COMPLETED") and t.get("txHash"):
             return t["txHash"]
-        if t["status"] in ("FAILED", "BLOCKED", "CANCELLED", "REJECTED"):
-            raise RuntimeError(f"Fireblocks tx {tx_id} {t['status']}: {t.get('subStatus')}")
+        if status in ("FAILED", "BLOCKED", "CANCELLED", "REJECTED"):
+            raise RuntimeError(f"Fireblocks tx {tx_id} {status}: {t.get('subStatus')}")
         time.sleep(3)
 
 
