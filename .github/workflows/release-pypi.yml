@@ -51,7 +51,11 @@ jobs:
         with:
           name: pypi-dist
           path: dist
-      - uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # release/v1
+      # PINNED TO v1.14.2, and it had to move: the older pin shipped a twine that refuses
+      # `Metadata-Version: 2.5`, which is what current hatchling writes — so 0.5.0 built fine and then
+      # failed at the upload with "'2.5' is not a valid metadata version". The build side is
+      # deliberately NOT pinned instead: following the packaging tools is the point of a build.
+      - uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26 # v1.14.2
         with:
           packages-dir: dist
         # Trusted publisher configured → no token needed.
