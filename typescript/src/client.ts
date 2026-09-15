@@ -124,8 +124,18 @@ export class HashlockClient {
   buildRefund(swapId: string, leg: LegKey): Promise<SettlementBuild> {
     return this.request(`/swaps/${swapId}/legs/${leg}/refund`, { method: 'POST' });
   }
-  /** Relay a client-signed transaction. `chain`: 'evm' (0x raw tx) | 'tron' (signed tx obj) | 'bitcoin' (raw hex). */
-  broadcast(chain: 'evm' | 'tron' | 'bitcoin', signed: unknown, idempotencyKey?: string): Promise<{ txid: string }> {
+/**
+   * Relay a transaction you signed yourself:
+   *   - `evm` — a raw `0x…` transaction;
+   *   - `tron` — the signed transaction object;
+   *   - `solana` — the base64 transaction from the build step, with your signature in it;
+   *   - `bitcoin` — either a raw hex transaction, or `{ psbtBase64, signaturesHex, preimageHex? }`
+   *     from a `btc-sighash` build, in which case the witness is assembled for you (omit
+   *     `preimageHex` to take the refund branch).
+   */
+  // `'tron'` here, not the `'tvm'` a build's `family` carries: this is the broadcast route's own
+  // vocabulary, and the two really do differ.
+  broadcast(chain: 'evm' | 'tron' | 'bitcoin' | 'solana', signed: unknown, idempotencyKey?: string): Promise<{ txid: string }> {
     return this.request('/tx/broadcast', { method: 'POST', body: { chain, signed }, idempotencyKey });
   }
 

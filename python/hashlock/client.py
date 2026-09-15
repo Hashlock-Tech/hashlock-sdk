@@ -116,6 +116,16 @@ class HashlockClient:
         return self._request("POST", f"/swaps/{swap_id}/address", json={"chain": chain, "address": address})["swap"]
 
     # ── settlement builders (UNSIGNED — sign with your own key/HSM, then broadcast) ─
+    # Each answer names its shape in ``sign``, and that is what to branch on:
+    #   evm-tx       EVM      txs: [{to, data, value?}] — sign and send raw
+    #   tron-txid    TRON     transactions: [{transaction, txID}] — sign each txID
+    #   btc-payment  Bitcoin  payTo + amountSats, and feePayTo/feeAmountSats when the protocol fee is
+    #                         on this leg: both must be paid or the leg does not count as funded
+    #   btc-sighash  Bitcoin  psbtBase64 + sighashHexes — sign each, then broadcast
+    #                         {"psbtBase64": ..., "signaturesHex": [...], "preimageHex": ...}; leaving
+    #                         out the preimage takes the refund branch
+    #   solana-tx    Solana   transactionBase64 — sign with the funder key (the recipient's on a
+    #                         claim); the blockhash lasts about a minute
     def build_fund(self, swap_id: str, leg: str) -> dict[str, Any]:
         return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/fund")
 
@@ -126,7 +136,13 @@ class HashlockClient:
         return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/refund")
 
     def broadcast(self, chain: str, signed: Any, idempotency_key: Optional[str] = None) -> dict[str, Any]:
-        """Relay a client-signed tx. ``chain``: 'evm' (0x raw) | 'tron' (signed obj) | 'bitcoin' (raw hex)."""
+        """Relay a transaction you signed yourself.
+
+        ``chain``: 'evm' (a raw 0x transaction) | 'tron' (the signed transaction object) | 'solana'
+        (the base64 transaction with your signature in it) | 'bitcoin' (a raw hex transaction, or
+        ``{"psbtBase64": ..., "signaturesHex": [...], "preimageHex": ...}`` from a btc-sighash build —
+        the witness is assembled server-side, and omitting the preimage takes the refund branch).
+        """
         return self._request("POST", "/tx/broadcast", json={"chain": chain, "signed": signed}, idempotency_key=idempotency_key)
 
     # ── webhooks ─────────────────────────────────────────────────────────────────

@@ -36,8 +36,9 @@ The settlement build tells you which one applies via its `sign` field:
 |----------------|-----------|-----------------------------------------------------------|----------------------------------------------------|
 | `evm-tx`       | EVM       | `txs: [{ to, data, value? }]`, `chainId`                  | Fireblocks **CONTRACT_CALL** (it signs *and* broadcasts) — or raw-sign + `client.broadcast('evm', rawTx)` |
 | `tron-txid`    | TRON      | `transactions: [{ transaction, txID }]`                   | **Raw-sign** each `txID` (secp256k1), attach the signature, `client.broadcast('tron', signedTx)` |
-| `btc-payment`  | Bitcoin   | `payTo`, `amountSats`                                     | A normal transfer from your BTC vault to `payTo`   |
-| `btc-witness`  | Bitcoin   | `p2wsh`, `redeemHex`, `preimageHex` / `timelockUnix`      | **Raw-sign** the BIP-143 sighash, assemble the witness, `client.broadcast('bitcoin', rawHex)` |
+| `btc-payment`  | Bitcoin   | `payTo`, `amountSats`, and `feePayTo`/`feeAmountSats` when the protocol fee is on this leg | A normal transfer from your BTC vault — BOTH amounts, or the leg does not count as funded |
+| `btc-sighash`  | Bitcoin   | `psbtBase64`, `sighashHexes`, `preimageHex` on a claim    | **Raw-sign** each sighash (secp256k1), then `client.broadcast('bitcoin', { psbtBase64, signaturesHex, preimageHex? })` — the witness is assembled for you, and omitting the preimage takes the refund branch |
+| `solana-tx`    | Solana    | `transactionBase64`, `escrow`, `blockhash`                | **Raw-sign** the transaction (ed25519) with the funder key — the recipient's key on a claim — then `client.broadcast('solana', signedBase64)`. The blockhash lasts about a minute |
 
 **Custody providers that broadcast for you** (Fireblocks CONTRACT_CALL, a Bitcoin transfer): you do *not*
 call `client.broadcast` — the provider submits the transaction and returns the on-chain hash.

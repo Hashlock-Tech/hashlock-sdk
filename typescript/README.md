@@ -1,7 +1,7 @@
 # @hashlock-tech/sdk
 
 TypeScript SDK for the [Hashlock Markets](https://github.com/Hashlock-Tech/hashlock-sdk) developer API —
-non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON). Runs on Node 18+, browsers, and edge runtimes
+non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON/Solana). Runs on Node 18+, browsers, and edge runtimes
 (native `fetch` / `WebSocket`, zero runtime dependencies).
 
 > ⚠️ **Sandbox / testnet preview (0.x)** — defaults to `api-dev.hashlock.markets`, testnets only,
