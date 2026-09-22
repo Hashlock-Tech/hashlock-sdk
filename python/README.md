@@ -23,7 +23,7 @@ for swap in client.swaps():
 
 # initiator: secret stays private; submit only the hashlock
 secret, hashlock = new_secret()
-client.accept_terms(thread_id, hashlock=hashlock)
+client.accept_terms(thread_id, quote_amount, hashlock=hashlock)  # the price you read; refused if it moved
 
 # webhooks: verify a delivery against the raw body
 ok = verify_webhook(secret, raw_body, request.headers.get("x-hashlock-signature"), request.headers.get("x-hashlock-timestamp"))

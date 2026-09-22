@@ -88,14 +88,19 @@ export class HashlockClient {
   proposeTerms(threadId: string, quoteAmount: string): Promise<{ thread: Thread }> {
     return this.request(`/threads/${threadId}/propose`, { method: 'POST', body: { quoteAmount } });
   }
-  acceptProposal(threadId: string): Promise<{ thread: Thread }> {
-    return this.request(`/threads/${threadId}/accept-proposal`, { method: 'POST' });
+  /**
+   * Accept the counterparty's pending price. `quoteAmount` is the `pendingAmount` you read from
+   * {@link getThread}; the server refuses if a newer counter has replaced it.
+   */
+  acceptProposal(threadId: string, quoteAmount: string): Promise<{ thread: Thread }> {
+    return this.request(`/threads/${threadId}/accept-proposal`, { method: 'POST', body: { quoteAmount } });
   }
   /**
-   * Accept the current terms. When BOTH sides have accepted, the swap is created. The initiator (funds
-   * the long leg) MUST pass `hashlock` = sha256(secret) — see {@link newSecret}.
+   * Accept the current terms. When BOTH sides have accepted, the swap is created. `quoteAmount` is the
+   * `currentQuoteAmount` you read from {@link getThread} — refused if the price moved since. The
+   * initiator (funds the long leg) MUST also pass `hashlock` = sha256(secret) — see {@link newSecret}.
    */
-  acceptTerms(threadId: string, opts: { hashlock?: string } = {}): Promise<{ thread: Thread; swap?: Swap }> {
+  acceptTerms(threadId: string, opts: { quoteAmount: string; hashlock?: string }): Promise<{ thread: Thread; swap?: Swap }> {
     return this.request(`/threads/${threadId}/accept`, { method: 'POST', body: opts });
   }
 

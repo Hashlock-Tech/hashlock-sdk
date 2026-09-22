@@ -92,13 +92,20 @@ class HashlockClient:
     def propose_terms(self, thread_id: str, quote_amount: str) -> dict[str, Any]:
         return self._request("POST", f"/threads/{thread_id}/propose", json={"quoteAmount": quote_amount})
 
-    def accept_proposal(self, thread_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/threads/{thread_id}/accept-proposal")
+    def accept_proposal(self, thread_id: str, quote_amount: str) -> dict[str, Any]:
+        """Accept the counterparty's pending price. ``quote_amount`` is the ``pendingAmount`` you read from
+        :meth:`get_thread`; the server refuses if a newer counter has replaced it."""
+        return self._request("POST", f"/threads/{thread_id}/accept-proposal", json={"quoteAmount": quote_amount})
 
-    def accept_terms(self, thread_id: str, hashlock: Optional[str] = None) -> dict[str, Any]:
-        """Accept the current terms. When BOTH sides accept, the swap is created. The initiator (funds the
-        long leg) MUST pass ``hashlock`` = sha256(secret) — see :func:`hashlock.secret.new_secret`."""
-        return self._request("POST", f"/threads/{thread_id}/accept", json={"hashlock": hashlock} if hashlock else {})
+    def accept_terms(self, thread_id: str, quote_amount: str, hashlock: Optional[str] = None) -> dict[str, Any]:
+        """Accept the current terms. When BOTH sides accept, the swap is created. ``quote_amount`` is the
+        ``currentQuoteAmount`` you read from :meth:`get_thread` — refused if the price moved since. The
+        initiator (funds the long leg) MUST also pass ``hashlock`` = sha256(secret) — see
+        :func:`hashlock.secret.new_secret`."""
+        body: dict[str, Any] = {"quoteAmount": quote_amount}
+        if hashlock:
+            body["hashlock"] = hashlock
+        return self._request("POST", f"/threads/{thread_id}/accept", json=body)
 
     # ── swaps ─────────────────────────────────────────────────────────────────────
     def list_swaps(self, **params: Any) -> dict[str, Any]:

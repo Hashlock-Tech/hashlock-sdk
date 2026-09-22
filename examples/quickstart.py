@@ -44,10 +44,11 @@ def main() -> None:
     #    thread = maker_client.quote_rfq(rfq["id"], "650000")["thread"]
     thread_id = "<thread id from the maker quote>"
 
-    # 3) accept. The initiator supplies hashlock = sha256(secret).
+    # 3) accept, naming the price you read — refused if it moved since. The initiator also supplies
+    #    hashlock = sha256(secret).
+    quote_amount = client.get_thread(thread_id)["thread"]["currentQuoteAmount"]
     secret, hashlock = new_secret()  # keep `secret` private until you claim your leg
-    client.accept_terms(thread_id, hashlock=hashlock)
-    swap = client.accept_terms(thread_id)["swap"]  # created once BOTH sides have accepted
+    swap = client.accept_terms(thread_id, quote_amount, hashlock=hashlock)["swap"]  # once BOTH have accepted
 
     # 4) set receive/refund addresses (Bitcoin uses the compressed pubkey hex).
     client.set_swap_address(swap["id"], "ethereum", "0xYourUsdtPayoutAddress")

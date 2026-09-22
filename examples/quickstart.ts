@@ -42,11 +42,12 @@ async function main() {
   //    const { thread } = await makerClient.quoteRfq(rfq.id, '650000'); // 0.65 USDT (6 decimals)
   const threadId = '<thread id from the maker quote>';
 
-  // 3) accept. The initiator (funds the long leg) supplies hashlock = sha256(secret).
+  // 3) accept, naming the price you read — refused if it moved since. The initiator (funds the long leg)
+  //    also supplies hashlock = sha256(secret).
+  const quoteAmount = (await client.getThread(threadId)).thread.currentQuoteAmount!;
   const { secret, hashlock } = await newSecret(); // keep `secret` private until you claim your leg
-  await client.acceptTerms(threadId, { hashlock });
-  // …the maker also accepts; when BOTH accept, the swap is created:
-  const swap = (await client.acceptTerms(threadId)).swap!; // returns the swap once both sides accepted
+  // Once BOTH sides have accepted, the swap is created and returned:
+  const swap = (await client.acceptTerms(threadId, { quoteAmount, hashlock })).swap!;
 
   // 4) set your receive/refund addresses. Bitcoin uses the compressed pubkey (hex).
   await client.setSwapAddress(swap.id, 'ethereum', '0xYourUsdtPayoutAddress'); // taker receives USDT
