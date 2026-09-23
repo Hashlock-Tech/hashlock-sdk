@@ -118,9 +118,16 @@ class HashlockClient:
     def get_swap(self, swap_id: str) -> dict[str, Any]:
         return self._request("GET", f"/swaps/{swap_id}")["swap"]
 
-    def set_swap_address(self, swap_id: str, chain: str, address: str) -> dict[str, Any]:
-        """Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex)."""
-        return self._request("POST", f"/swaps/{swap_id}/address", json={"chain": chain, "address": address})["swap"]
+    def set_swap_address(self, swap_id: str, chain: str, address: str, leg: Optional[str] = None) -> dict[str, Any]:
+        """Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex).
+
+        When both legs are on the same chain, pass ``leg`` ("a" or "b") — the maker funds leg a and
+        receives on leg b, the taker the reverse; the API refuses the call without it then.
+        """
+        body: dict[str, Any] = {"chain": chain, "address": address}
+        if leg is not None:
+            body["leg"] = leg
+        return self._request("POST", f"/swaps/{swap_id}/address", json=body)["swap"]
 
     # ── settlement builders (UNSIGNED — sign with your own key/HSM, then broadcast) ─
     # Each answer names its shape in ``sign``, and that is what to branch on:

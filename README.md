@@ -69,7 +69,7 @@ provider.
 1. **RFQ → quote → accept.** A taker posts an RFQ; a maker quotes it (opening a negotiation thread); both
    accept the terms. The **initiator** (whoever funds the long-timelock leg) generates a secret locally and
    submits only `hashlock = sha256(secret)`. When both accept, the swap is created.
-2. **Addresses.** Each side sets its receive (payout) / refund address per leg (`setSwapAddress`). Bitcoin
+2. **Addresses.** Each side sets its receive (payout) / refund address per leg (`setSwapAddress`; pass the leg, `'a'` or `'b'`, when both legs are on one chain). Bitcoin
    uses the compressed pubkey — the server derives the P2WSH.
 3. **Fund.** The initiator funds the long leg; the counterparty funds the short leg. Each `buildFund` call
    returns an *unsigned* transaction — you sign and broadcast. Funding is EVM txs, a Bitcoin payment,

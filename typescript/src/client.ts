@@ -114,9 +114,13 @@ export class HashlockClient {
   async getSwap(id: string): Promise<Swap> {
     return (await this.request<{ swap: Swap }>(`/swaps/${id}`)).swap;
   }
-  /** Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex). */
-  async setSwapAddress(swapId: string, chain: string, address: string): Promise<Swap> {
-    return (await this.request<{ swap: Swap }>(`/swaps/${swapId}/address`, { method: 'POST', body: { chain, address } })).swap;
+  /**
+   * Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex). When both
+   * legs are on the same chain, pass `leg` ('a' or 'b') — the maker funds leg a and receives on leg b, the
+   * taker the reverse; the API refuses the call without it then.
+   */
+  async setSwapAddress(swapId: string, chain: string, address: string, leg?: 'a' | 'b'): Promise<Swap> {
+    return (await this.request<{ swap: Swap }>(`/swaps/${swapId}/address`, { method: 'POST', body: { chain, address, leg } })).swap;
   }
 
   // ── settlement builders (UNSIGNED — sign with your own key/HSM, then broadcast) ─
