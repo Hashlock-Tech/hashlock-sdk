@@ -11,7 +11,7 @@ import httpx
 
 from .errors import HashlockError
 
-DEFAULT_BASE = "https://api-dev.hashlock.markets/v1"
+DEFAULT_BASE = "https://api.hashlock.markets/v1"
 
 
 class HashlockClient:

@@ -16,7 +16,7 @@ import type {
 export interface HashlockClientOptions {
   /** Your API key: `hk_test_…` (testnet) or `hk_live_…` (mainnet). */
   apiKey: string;
-  /** API base URL. Default: the public sandbox. Point at your own env / the prod host as needed. */
+  /** API base URL. Default: the production API (https://api.hashlock.markets/v1). Point at another deployment as needed. */
   baseUrl?: string;
   /** Override the fetch implementation (e.g. a custom agent). Defaults to global fetch. */
   fetch?: typeof fetch;
@@ -30,7 +30,7 @@ interface RequestOptions {
   idempotencyKey?: string;
 }
 
-const DEFAULT_BASE = 'https://api-dev.hashlock.markets/v1';
+const DEFAULT_BASE = 'https://api.hashlock.markets/v1';
 
 /**
  * Thin, typed client for the Hashlock Markets developer API (/v1). Custody-agnostic: the settlement

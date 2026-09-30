@@ -5,10 +5,9 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
 
 📖 **Documentation:** [docs.hashlock.markets](https://docs.hashlock.markets) — concepts, quickstart, guides and the API reference.
 
-> ⚠️ **Sandbox / testnet preview (0.x).** The SDK defaults to the public sandbox
-> (`api-dev.hashlock.markets`) and targets **testnets only** — pre-mainnet, pre-external-audit. The API
-> surface may still change before the stable `1.0` release, which will accompany mainnet. Don't use with
-> mainnet funds.
+> ⚠️ **Preview (0.x), pre-launch.** The SDK defaults to the production API (`api.hashlock.markets`), which is
+> not open yet; pass `baseUrl` to target another deployment. The API surface may still change before the
+> stable `1.0` release, which will accompany launch.
 
 - **Non-custodial.** Settlement endpoints return *unsigned* transactions. You sign with your own key or
   HSM; the server never holds your keys.
@@ -99,7 +98,7 @@ free-option/griefing risk.
 - **Webhooks:** `createWebhook()`, `listWebhooks()`, `deleteWebhook()`, `pingWebhook()` + `verifyWebhook()`.
 - **Maker feed:** `MakerFeed` — stream quotable RFQs and submit quotes over a WebSocket.
 
-Interactive API reference: `https://api-dev.hashlock.markets/v1/docs` (OpenAPI at `/v1/openapi.json`).
+Interactive API reference: `https://api.hashlock.markets/v1/docs` (OpenAPI at `/v1/openapi.json`).
 
 ## License
 

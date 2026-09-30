@@ -5,5 +5,5 @@
 - **`fireblocks/`** — reference for signing those unsigned transactions with a custody provider
   (Fireblocks / Copper). Documented pattern, not a runnable integration test.
 
-All examples target the sandbox (`https://api-dev.hashlock.markets/v1`) by default. Set
+All examples target the production API (`https://api.hashlock.markets/v1`, not open yet) by default. Set
 `HASHLOCK_API_KEY` (and `HASHLOCK_API_URL` to point at another environment).

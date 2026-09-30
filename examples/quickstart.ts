@@ -12,7 +12,7 @@ import { HashlockClient, newSecret } from '@hashlock-tech/sdk';
 
 const client = new HashlockClient({
   apiKey: process.env.HASHLOCK_API_KEY!,
-  baseUrl: process.env.HASHLOCK_API_URL ?? 'https://api-dev.hashlock.markets/v1',
+  baseUrl: process.env.HASHLOCK_API_URL ?? 'https://api.hashlock.markets/v1',
 });
 
 // Sign an unsigned settlement build with your own key/HSM, then return a txid.

@@ -21,7 +21,7 @@ def sign_and_broadcast(build: dict) -> str:
 def main() -> None:
     client = HashlockClient(
         api_key=os.environ["HASHLOCK_API_KEY"],
-        base_url=os.environ.get("HASHLOCK_API_URL", "https://api-dev.hashlock.markets/v1"),
+        base_url=os.environ.get("HASHLOCK_API_URL", "https://api.hashlock.markets/v1"),
     )
     me = client.me()
     print("authenticated:", me["userId"], me["scopes"])

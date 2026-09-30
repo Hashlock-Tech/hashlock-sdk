@@ -6,8 +6,11 @@ import type { Rfq } from './types.js';
 
 export interface MakerFeedOptions {
   apiKey: string;
-  /** WS URL. Default derives from the REST base: wss://api-dev.hashlock.markets/v1/ws */
+  /** WS URL. Default: `baseUrl` + `/ws` in ws(s) form, else wss://api.hashlock.markets/v1/ws. */
   url?: string;
+  /** The REST base the rest of your client uses (e.g. https://your-host/v1) — the feed follows it, so a
+   *  client pointed at another deployment never sends its API key to production. */
+  baseUrl?: string;
   WebSocket?: typeof WebSocket;
   onSnapshot?: (rfqs: Rfq[]) => void;
   onRfq?: (rfq: Rfq, kind: string) => void;
@@ -16,7 +19,7 @@ export interface MakerFeedOptions {
   onClose?: () => void;
 }
 
-const DEFAULT_WS = 'wss://api-dev.hashlock.markets/v1/ws';
+const DEFAULT_WS = 'wss://api.hashlock.markets/v1/ws';
 
 export class MakerFeed {
   private ws?: WebSocket;
@@ -28,7 +31,8 @@ export class MakerFeed {
   connect(): Promise<void> {
     const Ctor = this.opts.WebSocket ?? (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
     if (!Ctor) throw new Error('MakerFeed: no WebSocket available — pass options.WebSocket');
-    const ws = new Ctor(this.opts.url ?? DEFAULT_WS);
+    const derived = this.opts.baseUrl ? `${this.opts.baseUrl.replace(/\/+$/, '').replace(/^http/, 'ws')}/ws` : undefined;
+    const ws = new Ctor(this.opts.url ?? derived ?? DEFAULT_WS);
     this.ws = ws;
     return new Promise((resolve, reject) => {
       ws.onopen = () => ws.send(JSON.stringify({ apiKey: this.opts.apiKey }));
