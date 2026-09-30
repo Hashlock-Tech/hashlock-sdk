@@ -3,7 +3,7 @@
 Official TypeScript and Python SDKs for the **Hashlock Markets** developer API — non-custodial
 cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTLC.
 
-📖 **Documentation:** [docs.hashlock.markets](https://docs.hashlock.markets) — concepts, quickstart, guides and the API reference.
+📖 **Documentation:** [docs.hashlock.markets](https://docs.hashlock.markets) — concepts, quickstart, guides and the API reference. For agents: [`llms.txt`](https://docs.hashlock.markets/llms.txt) (index), [`llms-full.txt`](https://docs.hashlock.markets/llms-full.txt) (everything in one file), any page as Markdown by adding `.md`, and a docs-search MCP server at `https://docs.hashlock.markets/mcp`.
 
 > ⚠️ **Preview (0.x), pre-launch.** The SDK defaults to the production API (`api.hashlock.markets`), which is
 > not open yet; pass `baseUrl` to target another deployment. The API surface may still change before the
