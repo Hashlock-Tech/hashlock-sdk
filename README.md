@@ -83,7 +83,13 @@ free-option/griefing risk.
 
 ## Core surface
 
-- **Auth:** API key (`Authorization: Bearer hk_…` or `X-Api-Key`), scopes `read | taker | maker`.
+- **Auth:** API key (`Authorization: Bearer hk_…` or `X-Api-Key`), scopes `read | taker | maker`. Keys
+  expire after 90 days. Create one at /developers, or with no browser by a wallet signature:
+  `GET /v1/keys/nonce`, then `POST /v1/keys` (see `/v1/docs`). A wallet-only account holds one key
+  (a new signed mint replaces it); an account signed up with email, Google or Telegram holds up to 10.
+- **Payout addresses:** an address that receives money must be a wallet the account signed in with, or
+  proved from a signed-in web session. A proof made with the API key (`POST /v1/wallets/<chain>`) widens
+  what you can trade but does not count — a leaked key cannot redirect your money.
 - **Market:** `assets()`, `listRfqs()` / `rfqs()` (cursor-paginated), `getRfq()`, `createRfq()`, `quoteRfq()`.
 - **Negotiation:** `getThread()`, `proposeTerms()`, `acceptProposal()`, `acceptTerms()`.
 - **Swaps:** `listSwaps()` / `swaps()`, `getSwap()`, `setSwapAddress()`.
