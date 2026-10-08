@@ -2,7 +2,7 @@
  * Quickstart: a full BTC ↔ USDT(EVM) swap driven entirely through the developer API.
  *
  *   npm i @hashlock-tech/sdk
- *   HASHLOCK_API_KEY=hk_test_… npx tsx examples/quickstart.ts
+ *   HASHLOCK_API_KEY=hk_live_… npx tsx examples/quickstart.ts
  *
  * This shows the API flow end-to-end. Signing is YOURS — the settlement builders return UNSIGNED
  * transactions; sign them with your wallet or HSM (see examples/fireblocks) and either broadcast via

@@ -1,7 +1,7 @@
 """Quickstart: a full BTC <-> USDT(EVM) swap driven through the developer API.
 
     pip install hashlock-sdk
-    HASHLOCK_API_KEY=hk_test_... python examples/quickstart.py
+    HASHLOCK_API_KEY=hk_live_... python examples/quickstart.py
 
 Signing is YOURS — the settlement builders return UNSIGNED transactions; sign with your wallet or HSM
 (see examples/fireblocks) and either broadcast via client.broadcast(...) or let your custody provider
