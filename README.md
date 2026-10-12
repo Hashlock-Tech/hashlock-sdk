@@ -53,7 +53,7 @@ New: `SolanaBuild` (`sign: 'solana-tx'`), `broadcast('solana', signedBase64)`, a
 ```ts
 import { HashlockClient, newSecret } from '@hashlock-tech/sdk';
 
-const client = new HashlockClient({ apiKey: process.env.HASHLOCK_API_KEY! }); // hk_test_… / hk_live_…
+const client = new HashlockClient({ apiKey: process.env.HASHLOCK_API_KEY! }); // hk_live_…
 
 const assets = await client.assets();
 const btc = assets.find((a) => a.symbol === 'BTC')!;
