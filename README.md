@@ -22,6 +22,19 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
 | [`examples/`](./examples) | Quickstarts + Fireblocks/Copper signing reference | — |
 
 
+## Upgrading to 0.6.0
+
+- **The default base URL is production**, `https://api.hashlock.markets/v1`. Pass `baseUrl` (TypeScript) or
+  `base_url` (Python) to talk to another deployment.
+- **Accepting a price names the price.** `acceptProposal(threadId, quoteAmount)` and
+  `acceptTerms(threadId, { quoteAmount, hashlock? })` (Python: `accept_proposal(thread_id, quote_amount)`,
+  `accept_terms(thread_id, quote_amount, hashlock=None)`). The API refuses an accept whose amount is no
+  longer the one on the table, so a counter that lands first is never accepted by mistake.
+- `setSwapAddress(swapId, chain, address, leg?)` / `set_swap_address(..., leg=None)` takes the leg
+  (`'a'` or `'b'`) — required when both legs are on the same chain.
+- The maker WebSocket feed (`MakerFeed` / `maker_feed`) also connects to production by default. It takes
+  `baseUrl` / `base_url` and derives the feed URL from it — pass the same value you give the client.
+
 ## Upgrading to 0.5.0
 
 Solana is a settlement rail here now, and two older shapes were wrong:
