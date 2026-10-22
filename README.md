@@ -26,10 +26,13 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
 
 - **The default base URL is production**, `https://api.hashlock.markets/v1`. Pass `baseUrl` (TypeScript) or
   `base_url` (Python) to talk to another deployment.
-- **Accepting a price names the price.** `acceptProposal(threadId, quoteAmount)` and
-  `acceptTerms(threadId, { quoteAmount, hashlock? })` (Python: `accept_proposal(thread_id, quote_amount)`,
-  `accept_terms(thread_id, quote_amount, hashlock=None)`). The API refuses an accept whose amount is no
-  longer the one on the table, so a counter that lands first is never accepted by mistake.
+- **Accepting a price names the price.** `acceptProposal(threadId, quoteAmount, { accept?, hashlock? })` and
+  `acceptTerms(threadId, { quoteAmount, hashlock? })` (Python: `accept_proposal(thread_id, quote_amount,
+  accept=False, hashlock=None)`, `accept_terms(thread_id, quote_amount, hashlock=None)`). The API refuses an
+  accept whose amount is no longer the one on the table, so a counter that lands first is never accepted by
+  mistake. `accept: true` on `acceptProposal` takes their counter AND accepts the deal at it in one step —
+  only the counterparty's `acceptTerms` is then left. If YOU are the initiator, pass your hashlock on that
+  `acceptProposal` call; if the counterparty is, they pass theirs on their `acceptTerms`.
 - `setSwapAddress(swapId, chain, address, leg?)` / `set_swap_address(..., leg=None)` takes the leg
   (`'a'` or `'b'`) — required when both legs are on the same chain.
 - The maker WebSocket feed (`MakerFeed` / `maker_feed`) also connects to production by default. It takes

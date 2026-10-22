@@ -92,8 +92,18 @@ export class HashlockClient {
    * Accept the counterparty's pending price. `quoteAmount` is the `pendingAmount` you read from
    * {@link getThread}; the server refuses if a newer counter has replaced it.
    */
-  acceptProposal(threadId: string, quoteAmount: string): Promise<{ thread: Thread }> {
-    return this.request(`/threads/${threadId}/accept-proposal`, { method: 'POST', body: { quoteAmount } });
+  acceptProposal(threadId: string, quoteAmount: string, opts: { accept?: boolean; hashlock?: string } = {}): Promise<{ thread: Thread; swap?: Swap }> {
+    // `accept: true` also accepts the deal at that price in the same server transaction; only the counterparty's
+    // acceptTerms is then left. The initiator passes its hashlock here (the server refuses one without accept).
+    if (opts.hashlock && !opts.accept) throw new Error('hashlock is only taken with accept: true');
+    const body = opts.accept ? { quoteAmount, accept: true, hashlock: opts.hashlock } : { quoteAmount };
+    return this.request<{ thread: Thread; swap?: Swap }>(`/threads/${threadId}/accept-proposal`, { method: 'POST', body }).then((res) =>
+      // An API older than the one-step take ignores `accept`: it took the price and nobody has accepted. Accept it
+      // now — the same price, the same hashlock — so the result is the same either way.
+      opts.accept && !res.swap && !res.thread.takerAccepted && !res.thread.makerAccepted
+        ? this.acceptTerms(threadId, { quoteAmount, hashlock: opts.hashlock })
+        : res,
+    );
   }
   /**
    * Accept the current terms. When BOTH sides have accepted, the swap is created. `quoteAmount` is the

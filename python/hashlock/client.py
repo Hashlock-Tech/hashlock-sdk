@@ -92,10 +92,27 @@ class HashlockClient:
     def propose_terms(self, thread_id: str, quote_amount: str) -> dict[str, Any]:
         return self._request("POST", f"/threads/{thread_id}/propose", json={"quoteAmount": quote_amount})
 
-    def accept_proposal(self, thread_id: str, quote_amount: str) -> dict[str, Any]:
+    def accept_proposal(
+        self, thread_id: str, quote_amount: str, accept: bool = False, hashlock: Optional[str] = None
+    ) -> dict[str, Any]:
         """Accept the counterparty's pending price. ``quote_amount`` is the ``pendingAmount`` you read from
-        :meth:`get_thread`; the server refuses if a newer counter has replaced it."""
-        return self._request("POST", f"/threads/{thread_id}/accept-proposal", json={"quoteAmount": quote_amount})
+        :meth:`get_thread`; the server refuses if a newer counter has replaced it. With ``accept=True`` it also
+        accepts the deal at that price in the same server transaction, so only the counterparty's
+        :meth:`accept_terms` is left; the initiator then passes ``hashlock`` here (refused without ``accept``)."""
+        if hashlock and not accept:
+            raise ValueError("hashlock is only taken with accept=True")
+        body: dict[str, Any] = {"quoteAmount": quote_amount}
+        if accept:
+            body["accept"] = True
+            if hashlock:
+                body["hashlock"] = hashlock
+        res = self._request("POST", f"/threads/{thread_id}/accept-proposal", json=body)
+        # An API older than the one-step take ignores ``accept``: it took the price and nobody has accepted. Accept
+        # it now — the same price, the same hashlock — so the result is the same either way.
+        thread = res.get("thread") or {}
+        if accept and not res.get("swap") and not thread.get("takerAccepted") and not thread.get("makerAccepted"):
+            return self.accept_terms(thread_id, quote_amount, hashlock)
+        return res
 
     def accept_terms(self, thread_id: str, quote_amount: str, hashlock: Optional[str] = None) -> dict[str, Any]:
         """Accept the current terms. When BOTH sides accept, the swap is created. ``quote_amount`` is the
