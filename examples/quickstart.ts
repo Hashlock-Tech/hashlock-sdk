@@ -46,7 +46,7 @@ async function main() {
   //    also supplies hashlock = sha256(secret).
   const quoteAmount = (await client.getThread(threadId)).thread.currentQuoteAmount!;
   const { secret, hashlock } = await newSecret(); // keep `secret` private until you claim your leg
-  // Once BOTH sides have accepted, the swap is created and returned:
+  // The maker's quote is its acceptance, so this accept creates the swap and returns it:
   const swap = (await client.acceptTerms(threadId, { quoteAmount, hashlock })).swap!;
 
   // 4) set your receive/refund addresses. Bitcoin uses the compressed pubkey (hex).

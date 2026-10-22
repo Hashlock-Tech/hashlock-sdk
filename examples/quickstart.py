@@ -48,7 +48,7 @@ def main() -> None:
     #    hashlock = sha256(secret).
     quote_amount = client.get_thread(thread_id)["thread"]["currentQuoteAmount"]
     secret, hashlock = new_secret()  # keep `secret` private until you claim your leg
-    swap = client.accept_terms(thread_id, quote_amount, hashlock=hashlock)["swap"]  # once BOTH have accepted
+    swap = client.accept_terms(thread_id, quote_amount, hashlock=hashlock)["swap"]  # the quote was the maker's accept
 
     # 4) set receive/refund addresses (Bitcoin uses the compressed pubkey hex).
     client.set_swap_address(swap["id"], "ethereum", "0xYourUsdtPayoutAddress")

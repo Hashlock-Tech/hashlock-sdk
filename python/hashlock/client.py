@@ -82,15 +82,22 @@ class HashlockClient:
         return self._request("POST", "/rfqs", json={k: v for k, v in body.items() if v is not None}, idempotency_key=idempotency_key)["rfq"]
 
     def quote_rfq(self, rfq_id: str, quote_amount: str, idempotency_key: Optional[str] = None) -> dict[str, Any]:
-        """Quote an RFQ (requires the ``maker`` scope) — opens a settlement thread."""
+        """Quote an RFQ (requires the ``maker`` scope) — opens a settlement thread. The quote is the maker's acceptance
+        of that price; if the returned thread shows ``makerAccepted: False`` the maker is the initiator and accepts
+        right away with :meth:`accept_terms` and its hashlock."""
         return self._request("POST", f"/rfqs/{rfq_id}/quotes", json={"quoteAmount": quote_amount}, idempotency_key=idempotency_key)
 
     # ── negotiation thread ───────────────────────────────────────────────────────
     def get_thread(self, thread_id: str) -> dict[str, Any]:
         return self._request("GET", f"/threads/{thread_id}")
 
-    def propose_terms(self, thread_id: str, quote_amount: str) -> dict[str, Any]:
-        return self._request("POST", f"/threads/{thread_id}/propose", json={"quoteAmount": quote_amount})
+    def propose_terms(self, thread_id: str, quote_amount: str, hashlock: Optional[str] = None) -> dict[str, Any]:
+        """Counter with a new price — proposing it is agreeing to it. The initiator agrees only with its ``hashlock``
+        (the same one it uses on every accept in this thread); the API ignores it from the other side."""
+        body: dict[str, Any] = {"quoteAmount": quote_amount}
+        if hashlock:
+            body["hashlock"] = hashlock
+        return self._request("POST", f"/threads/{thread_id}/propose", json=body)
 
     def accept_proposal(
         self, thread_id: str, quote_amount: str, accept: bool = False, hashlock: Optional[str] = None

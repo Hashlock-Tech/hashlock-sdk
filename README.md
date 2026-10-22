@@ -30,9 +30,12 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
   `acceptTerms(threadId, { quoteAmount, hashlock? })` (Python: `accept_proposal(thread_id, quote_amount,
   accept=False, hashlock=None)`, `accept_terms(thread_id, quote_amount, hashlock=None)`). The API refuses an
   accept whose amount is no longer the one on the table, so a counter that lands first is never accepted by
-  mistake. `accept: true` on `acceptProposal` takes their counter AND accepts the deal at it in one step —
-  only the counterparty's `acceptTerms` is then left. If YOU are the initiator, pass your hashlock on that
-  `acceptProposal` call; if the counterparty is, they pass theirs on their `acceptTerms`.
+  mistake. **Accept only the other side's price:** a quote or a counter is its author's acceptance, so taking
+  a maker's quote with `acceptTerms`, or a counter with `acceptProposal(..., { accept: true })`, agrees the
+  deal in that one call — once the other side's accepted flag (`makerAccepted` / `takerAccepted`) is set;
+  check it rather than assume. The initiator agrees only with its hashlock: it passes it on its accept, on its
+  counters (`proposeTerms(threadId, quoteAmount, { hashlock })`), and — as a maker whose `quoteRfq` returns
+  `makerAccepted: false` — on an `acceptTerms` right after its quote. Use one secret per thread.
 - `setSwapAddress(swapId, chain, address, leg?)` / `set_swap_address(..., leg=None)` takes the leg
   (`'a'` or `'b'`) — required when both legs are on the same chain.
 - The maker WebSocket feed (`MakerFeed` / `maker_feed`) also connects to production by default. It takes
@@ -71,7 +74,7 @@ const rfq = await client.createRfq({
   ttlSeconds: 3600,
 });
 
-// …a maker quotes it, both accept (the initiator passes hashlock = sha256(secret)),
+// …a maker quotes it (its acceptance), the taker accepts (the initiator passes hashlock = sha256(secret)),
 // then each side funds/claims its leg with the unsigned-tx builders.
 const { hashlock } = await newSecret();
 ```
@@ -82,9 +85,9 @@ provider.
 
 ## How a swap works
 
-1. **RFQ → quote → accept.** A taker posts an RFQ; a maker quotes it (opening a negotiation thread); both
-   accept the terms. The **initiator** (whoever funds the long-timelock leg) generates a secret locally and
-   submits only `hashlock = sha256(secret)`. When both accept, the swap is created.
+1. **RFQ → quote → accept.** A taker posts an RFQ; a maker quotes it (opening a negotiation thread) — the
+   quote is the maker's acceptance, so the taker's accept creates the swap. The **initiator** (whoever funds
+   the long-timelock leg) generates a secret locally and submits only `hashlock = sha256(secret)`.
 2. **Addresses.** Each side sets its receive (payout) / refund address per leg (`setSwapAddress`; pass the leg, `'a'` or `'b'`, when both legs are on one chain). Bitcoin
    uses the compressed pubkey — the server derives the P2WSH.
 3. **Fund.** The initiator funds the long leg; the counterparty funds the short leg. Each `buildFund` call

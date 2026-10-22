@@ -76,8 +76,10 @@ export class HashlockClient {
   async createRfq(input: CreateRfqInput, idempotencyKey?: string): Promise<Rfq> {
     return (await this.request<{ rfq: Rfq }>('/rfqs', { method: 'POST', body: input, idempotencyKey })).rfq;
   }
-  /** Quote an RFQ (requires the `maker` scope) — opens a settlement thread. */
-  quoteRfq(rfqId: string, quoteAmount: string, idempotencyKey?: string): Promise<{ thread: { id: string } }> {
+  /** Quote an RFQ (requires the `maker` scope) — opens a settlement thread. The quote is the maker's acceptance of that
+   *  price; `makerAccepted: false` on the returned thread means the maker is the initiator and accepts right away with
+   *  `acceptTerms` and its hashlock. */
+  quoteRfq(rfqId: string, quoteAmount: string, idempotencyKey?: string): Promise<{ thread: Thread }> {
     return this.request(`/rfqs/${rfqId}/quotes`, { method: 'POST', body: { quoteAmount }, idempotencyKey });
   }
 
@@ -85,8 +87,10 @@ export class HashlockClient {
   getThread(id: string): Promise<{ thread: Thread; rfq: Rfq; messages: unknown[] }> {
     return this.request(`/threads/${id}`);
   }
-  proposeTerms(threadId: string, quoteAmount: string): Promise<{ thread: Thread }> {
-    return this.request(`/threads/${threadId}/propose`, { method: 'POST', body: { quoteAmount } });
+  /** Counter with a new price — proposing it is agreeing to it. The initiator agrees only with its hashlock, so it passes
+   *  it here (the same one it uses on every accept in this thread); the API ignores it from the other side. */
+  proposeTerms(threadId: string, quoteAmount: string, opts: { hashlock?: string } = {}): Promise<{ thread: Thread }> {
+    return this.request(`/threads/${threadId}/propose`, { method: 'POST', body: { quoteAmount, hashlock: opts.hashlock } });
   }
   /**
    * Accept the counterparty's pending price. `quoteAmount` is the `pendingAmount` you read from
