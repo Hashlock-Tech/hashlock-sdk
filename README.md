@@ -22,6 +22,16 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
 | [`examples/`](./examples) | Quickstarts + Fireblocks/Copper signing reference | — |
 
 
+## Upgrading to 0.7.0
+
+- **Taking a counter agrees the deal in one call.** `acceptProposal(threadId, quoteAmount, { accept: true, hashlock? })`
+  (Python: `accept_proposal(..., accept=True, hashlock=None)`) takes the other side's price and records your
+  acceptance in one server call; the initiator passes its hashlock. A hashlock without `accept` is refused
+  before any request is sent.
+- **Proposing is agreeing.** `proposeTerms(threadId, quoteAmount, { hashlock })` / `propose_terms(..., hashlock=None)`:
+  the initiator passes its hashlock with every counter. `quoteRfq` / `quote_rfq` returns the thread, so a maker
+  sees `makerAccepted` straight away.
+
 ## Upgrading to 0.6.0
 
 - **The default base URL is production**, `https://api.hashlock.markets/v1`. Pass `baseUrl` (TypeScript) or
