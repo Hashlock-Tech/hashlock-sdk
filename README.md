@@ -22,6 +22,13 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
 | [`examples/`](./examples) | Quickstarts + Fireblocks/Copper signing reference | — |
 
 
+## A price keeps at most 8 decimals
+
+- A new price (a private order's `askAmount`, the amount in `quoteRfq` / `quote_rfq` and in `proposeTerms` /
+  `propose_terms`) has at most 8 decimals of its asset, fewer when the asset has fewer: in base units, a multiple of
+  10^(decimals − min(decimals, 8)). The API refuses more with "a price has at most N decimals" (N is 8, or the asset's own count when it has fewer), so round a computed price down.
+  Accepting a price already on the table is not affected. No SDK change is needed.
+
 ## Upgrading to 0.7.0
 
 - **Taking a counter agrees the deal in one call.** `acceptProposal(threadId, quoteAmount, { accept: true, hashlock? })`
