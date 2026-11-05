@@ -29,7 +29,7 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
   10^(decimals − min(decimals, 8)). The API refuses more with "a price has at most N decimals" (N is 8, or the asset's own count when it has fewer), so round a computed price down.
   Accepting a price already on the table is not affected. No SDK change is needed.
 
-## Since 0.7.0
+## New in 1.0.0 (since 0.7.0)
 
 - **Bitcoin pre-signed claim and refund.** `buildPresign(swapId, leg, { kind?, to? })` / `build_presign(...)` returns
   the leg's claim (its receiver) or the initiator's refund at up to three fee levels; sign every sighash and send them
