@@ -1,6 +1,8 @@
 import { HashlockError } from './errors.js';
 import type {
   Asset,
+  BtcPresignBuild,
+  BtcPresignInput,
   CreateRfqInput,
   LegKey,
   Me,
@@ -51,7 +53,7 @@ export class HashlockClient {
   }
 
   // ── core ───────────────────────────────────────────────────────────────────
-  /** Verify the key and see its scopes. */
+  /** Verify the key and see its scopes and the account name (`handle`, `handlePublic`). */
   me(): Promise<Me> {
     return this.request<Me>('/me');
   }
@@ -76,25 +78,28 @@ export class HashlockClient {
   async createRfq(input: CreateRfqInput, idempotencyKey?: string): Promise<Rfq> {
     return (await this.request<{ rfq: Rfq }>('/rfqs', { method: 'POST', body: input, idempotencyKey })).rfq;
   }
-  /** Quote an RFQ (requires the `maker` scope) — opens a settlement thread. The quote is the maker's acceptance of that
-   *  price; `makerAccepted: false` on the returned thread means the maker is the initiator and accepts right away with
-   *  `acceptTerms` and its hashlock. */
+  /** Quote an RFQ (requires the `maker` scope) — opens a settlement thread. `quoteAmount` keeps at most 8 decimals of
+   *  its asset (fewer if it has fewer). The quote is the maker's acceptance of that price; `makerAccepted: false` on the
+   *  returned thread means the maker is the initiator and accepts right away with `acceptTerms` and its hashlock. */
   quoteRfq(rfqId: string, quoteAmount: string, idempotencyKey?: string): Promise<{ thread: Thread }> {
     return this.request(`/rfqs/${rfqId}/quotes`, { method: 'POST', body: { quoteAmount }, idempotencyKey });
   }
 
   // ── negotiation thread ───────────────────────────────────────────────────────
-  getThread(id: string): Promise<{ thread: Thread; rfq: Rfq; messages: unknown[] }> {
+  /** `swap` is the swap once both sides accepted, else null. */
+  getThread(id: string): Promise<{ thread: Thread; rfq: Rfq; messages: unknown[]; swap: Swap | null }> {
     return this.request(`/threads/${id}`);
   }
-  /** Counter with a new price — proposing it is agreeing to it. The initiator agrees only with its hashlock, so it passes
-   *  it here (the same one it uses on every accept in this thread); the API ignores it from the other side. */
+  /** Counter with a new price (at most 8 decimals of its asset) — proposing it is agreeing to it, so it is refused when
+   *  you cannot fund your own leg at that price (see {@link acceptTerms}). The initiator agrees only with its hashlock,
+   *  so it passes it here (the same one it uses on every accept in this thread); the API ignores it from the other side. */
   proposeTerms(threadId: string, quoteAmount: string, opts: { hashlock?: string } = {}): Promise<{ thread: Thread }> {
     return this.request(`/threads/${threadId}/propose`, { method: 'POST', body: { quoteAmount, hashlock: opts.hashlock } });
   }
   /**
    * Accept the counterparty's pending price. `quoteAmount` is the `pendingAmount` you read from
-   * {@link getThread}; the server refuses if a newer counter has replaced it.
+   * {@link getThread}; the server refuses if a newer counter has replaced it, or if you cannot fund your own leg
+   * at that price (see {@link acceptTerms}).
    */
   acceptProposal(threadId: string, quoteAmount: string, opts: { accept?: boolean; hashlock?: string } = {}): Promise<{ thread: Thread; swap?: Swap }> {
     // `accept: true` also accepts the deal at that price in the same server transaction; only the counterparty's
@@ -113,6 +118,8 @@ export class HashlockClient {
    * Accept the current terms. When BOTH sides have accepted, the swap is created. `quoteAmount` is the
    * `currentQuoteAmount` you read from {@link getThread} — refused if the price moved since. The
    * initiator (funds the long leg) MUST also pass `hashlock` = sha256(secret) — see {@link newSecret}.
+   * Refused ("Not enough X to fund this: … Top up first.") when your wallet cannot fund your own leg at that price:
+   * the amount, the protocol fee if you are the taker, and the chain's coin reserve when the leg is that coin.
    */
   acceptTerms(threadId: string, opts: { quoteAmount: string; hashlock?: string }): Promise<{ thread: Thread; swap?: Swap }> {
     return this.request(`/threads/${threadId}/accept`, { method: 'POST', body: opts });
@@ -129,8 +136,12 @@ export class HashlockClient {
     return (await this.request<{ swap: Swap }>(`/swaps/${id}`)).swap;
   }
   /**
-   * Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex). When both
-   * legs are on the same chain, pass `leg` ('a' or 'b') — the maker funds leg a and receives on leg b, the
+   * Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex) — or, as the
+   * leg's receiver, a Bitcoin ADDRESS, which sets where your claim
+   * pays (`aClaimTo` / `bClaimTo`; the escrow stays on your key) and is accepted only while no leg is funded.
+   * Over an API key, an address that receives money must be a wallet this account signed in with, or one proven with
+   * the login wallet's authorisation or from a web wallet session — a key-only proof does not count. A payout change
+   * is refused (409) while the other side's funding of the leg that pays you is on its way. When both legs are on the same chain, pass `leg` ('a' or 'b') — the maker funds leg a and receives on leg b, the
    * taker the reverse; the API refuses the call without it then.
    */
   async setSwapAddress(swapId: string, chain: string, address: string, leg?: 'a' | 'b'): Promise<Swap> {
@@ -138,14 +149,40 @@ export class HashlockClient {
   }
 
   // ── settlement builders (UNSIGNED — sign with your own key/HSM, then broadcast) ─
+  /** A Solana funding the wallet cannot cover (amount, fee, rent) is refused (400) with the reason, before anyone signs. */
   buildFund(swapId: string, leg: LegKey): Promise<SettlementBuild> {
     return this.request(`/swaps/${swapId}/legs/${leg}/fund`, { method: 'POST' });
   }
-  buildClaim(swapId: string, leg: LegKey, secret: string): Promise<SettlementBuild> {
-    return this.request(`/swaps/${swapId}/legs/${leg}/claim`, { method: 'POST', body: { secret } });
+  /**
+   * Sends the secret. On every chain but Bitcoin a claim closes at the leg's timelock, and the initiator's is
+   * refused (409) from 10 minutes before it — unless the secret is already out, when it is still built. Bitcoin: `to` is where the claim
+   * pays — default the leg's `claimTo`, and any other address is refused (409) while one is set.
+   */
+  buildClaim(swapId: string, leg: LegKey, secret: string, opts: { to?: string } = {}): Promise<SettlementBuild> {
+    return this.request(`/swaps/${swapId}/legs/${leg}/claim`, { method: 'POST', body: { secret, to: opts.to } });
   }
-  buildRefund(swapId: string, leg: LegKey): Promise<SettlementBuild> {
-    return this.request(`/swaps/${swapId}/legs/${leg}/refund`, { method: 'POST' });
+  /**
+   * Only after the leg's timelock. Bitcoin: `to` is where the refund pays — default the refund key's P2WPKH;
+   * `escrow` refunds an escrow this leg moved off (after a pubkey correction) instead of its current one.
+   */
+  buildRefund(swapId: string, leg: LegKey, opts: { to?: string; escrow?: string } = {}): Promise<SettlementBuild> {
+    return this.request(`/swaps/${swapId}/legs/${leg}/refund`, {
+      method: 'POST',
+      query: { escrow: opts.escrow },
+      body: opts.to ? { to: opts.to } : undefined,
+    });
+  }
+  /**
+   * Bitcoin leg: its claim (`kind: 'claim'`, the default — the leg's receiver, once the escrow is recorded) or the
+   * initiator's refund (`kind: 'refund'`, its funder) at up to three fee levels, to sign now and hand to
+   * {@link storePresign}. `to` as in {@link buildClaim} / {@link buildRefund}.
+   */
+  buildPresign(swapId: string, leg: LegKey, opts: { kind?: 'claim' | 'refund'; to?: string } = {}): Promise<BtcPresignBuild> {
+    return this.request(`/swaps/${swapId}/legs/${leg}/presign`, { query: { kind: opts.kind, to: opts.to } });
+  }
+  /** Store the signed levels from {@link buildPresign}; each is verified against the escrow and the script's key. */
+  async storePresign(swapId: string, leg: LegKey, input: BtcPresignInput): Promise<Swap> {
+    return (await this.request<{ swap: Swap }>(`/swaps/${swapId}/legs/${leg}/presign`, { method: 'POST', body: input })).swap;
   }
 /**
    * Relay a transaction you signed yourself:

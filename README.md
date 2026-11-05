@@ -29,6 +29,30 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
   10^(decimals − min(decimals, 8)). The API refuses more with "a price has at most N decimals" (N is 8, or the asset's own count when it has fewer), so round a computed price down.
   Accepting a price already on the table is not affected. No SDK change is needed.
 
+## Since 0.7.0
+
+- **Bitcoin pre-signed claim and refund.** `buildPresign(swapId, leg, { kind?, to? })` / `build_presign(...)` returns
+  the leg's claim (its receiver) or the initiator's refund at up to three fee levels; sign every sighash and send them
+  back with `storePresign` / `store_presign`. The keeper broadcasts the claim once the secret is revealed, so an
+  offline receiver is still paid, and the refund once the deal cannot complete.
+- **Where a Bitcoin claim pays.** The leg's receiver may send a Bitcoin address (not a pubkey) to `setSwapAddress` while
+  no leg is funded: it becomes the swap's `aClaimTo` / `bClaimTo`, and a claim paying anywhere else is refused (409).
+  `buildClaim` / `buildRefund` take an optional Bitcoin `to`; `buildRefund` also takes `escrow`, to refund an escrow
+  the leg moved off after a pubkey correction.
+- **Claim windows.** On every chain but Bitcoin a claim closes at the leg's timelock; the initiator's claim build is
+  refused from 10 minutes before it, unless the secret is already out — then it is still built.
+- **No agreeing to terms you cannot fund.** `proposeTerms`, `acceptProposal` and `acceptTerms` are refused ("Not enough X
+  to fund this: … Top up first.") when your wallet cannot fund your own leg at that price: the amount, the protocol fee
+  if you are the taker, and the chain's coin reserve when the leg is that coin.
+- **Receive address fixed while it is being funded.** `setSwapAddress` refuses a payout change (409) while the other
+  side's funding of the leg that pays you is on its way.
+- **Solana funding checked before signing.** `buildFund` on a Solana leg is refused (400) with the reason when the
+  wallet cannot cover it.
+- New response fields: `Me.handle` / `handlePublic` (and `Me.wallets` is now typed), `Thread.counterpartyName`,
+  `Asset.logoAt` / `logoAnimated` (the logo is at `https://hashlock.markets/api/assets/{id}/logo?v=<logoAt as epoch ms>`,
+  the web host — not the API host), `Swap.aClaimTo` / `bClaimTo` and `Swap.aFundOutpoints` / `bFundOutpoints` (the
+  Bitcoin outputs a claim or refund spends); `getThread` returns `swap` (null until both sides accept).
+
 ## Upgrading to 0.7.0
 
 - **Taking a counter agrees the deal in one call.** `acceptProposal(threadId, quoteAmount, { accept: true, hashlock? })`
@@ -106,13 +130,15 @@ provider.
    quote is the maker's acceptance, so the taker's accept creates the swap. The **initiator** (whoever funds
    the long-timelock leg) generates a secret locally and submits only `hashlock = sha256(secret)`.
 2. **Addresses.** Each side sets its receive (payout) / refund address per leg (`setSwapAddress`; pass the leg, `'a'` or `'b'`, when both legs are on one chain). Bitcoin
-   uses the compressed pubkey — the server derives the P2WSH.
+   uses the compressed pubkey — the server derives the P2WSH; the receiver may also send a Bitcoin address, which is where
+   its claim then pays.
 3. **Fund.** The initiator funds the long leg; the counterparty funds the short leg. Each `buildFund` call
    returns an *unsigned* transaction — you sign and broadcast. Funding is EVM txs, a Bitcoin payment,
    a Solana transaction or TRON txs; claiming and refunding hand Bitcoin back as PSBT sighashes.
 4. **Claim.** The initiator claims the short leg with the secret — revealing it on-chain. The counterparty
    reads the secret and claims the long leg. **Atomic:** both legs settle, or both refund after their
-   timelocks.
+   timelocks. On every chain but Bitcoin a claim closes at its leg's timelock (the initiator's 10 minutes earlier,
+   unless the secret is already out — then it is still built).
 
 The same `sha256(secret)` hashlock binds every leg; asymmetric timelocks (long leg ≫ short leg) remove the
 free-option/griefing risk.
@@ -129,7 +155,8 @@ free-option/griefing risk.
 - **Market:** `assets()`, `listRfqs()` / `rfqs()` (cursor-paginated), `getRfq()`, `createRfq()`, `quoteRfq()`.
 - **Negotiation:** `getThread()`, `proposeTerms()`, `acceptProposal()`, `acceptTerms()`.
 - **Swaps:** `listSwaps()` / `swaps()`, `getSwap()`, `setSwapAddress()`.
-- **Settlement (unsigned):** `buildFund()`, `buildClaim()`, `buildRefund()`, `broadcast()`.
+- **Settlement (unsigned):** `buildFund()`, `buildClaim()`, `buildRefund()`, `broadcast()`; Bitcoin pre-signing:
+  `buildPresign()`, `storePresign()`.
 - **Webhooks:** `createWebhook()`, `listWebhooks()`, `deleteWebhook()`, `pingWebhook()` + `verifyWebhook()`.
 - **Maker feed:** `MakerFeed` — stream quotable RFQs and submit quotes over a WebSocket.
 

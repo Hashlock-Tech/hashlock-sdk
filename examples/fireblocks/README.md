@@ -53,6 +53,7 @@ and relay it with `client.broadcast(chain, signed)`.
   wait for it to confirm, then **re-fetch** `buildFund` for a fresh `fund` transaction before signing it.
 - Fund the **long** leg first, then the counterparty funds the short leg. The initiator claims the short
   leg (revealing the secret); the counterparty then claims the long leg. Refund is available per-leg after
-  its timelock.
+  its timelock; on every chain but Bitcoin a claim is possible only before it, and the initiator's claim is
+  built only until 10 minutes before it — unless the secret is already out, when it is still built.
 
 See `sign_evm.ts` for the Fireblocks CONTRACT_CALL flow (EVM `fund` = approve + createSwap).

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { SettlementBuild } from './types.js';
+import { HashlockClient } from './client.js';
+import type { BtcPresignBuild, SettlementBuild } from './types.js';
 
 /**
  * The settlement builds, as /v1 really answers them — these four objects are the shapes copied from
@@ -80,5 +81,51 @@ describe('SettlementBuild', () => {
   it('carries the Bitcoin fee fields a funding build answers with when the fee is on that leg', () => {
     const btc = builds.find((b) => b.sign === 'btc-payment')!;
     expect(btc).toMatchObject({ feePayTo: expect.any(String), feeAmountSats: '360' });
+  });
+});
+
+// GET /v1/swaps/{id}/legs/{leg}/presign, as presignPrepareHandler answers a claim.
+const presign: BtcPresignBuild = {
+  chain: 'bitcoin-signet',
+  family: 'bitcoin',
+  sign: 'btc-sighash',
+  kind: 'claim',
+  toAddress: 'tb1qexampleexampleexampleexampleexampleexamp',
+  signerPubkeyHex: '02' + 'dd'.repeat(32),
+  receiverPubkeyHex: '02' + 'dd'.repeat(32),
+  inputs: [{ txid: 'ee'.repeat(32), vout: 0, value: 120_000 }],
+  levels: [{ feeSats: 300, psbtBase64: 'cHNidP8BAH…', sighashHexes: ['aa'.repeat(32)] }],
+};
+
+describe('presign', () => {
+  // Records what the client sends; answers every call with { swap: { id: 's1' } }.
+  const sent: Array<{ url: string; method: string; body?: string }> = [];
+  const client = new HashlockClient({
+    apiKey: 'hk_test_x',
+    baseUrl: 'https://api.example/v1',
+    fetch: (async (url: string, init: RequestInit) => {
+      sent.push({ url, method: init.method!, body: init.body as string | undefined });
+      return new Response(JSON.stringify({ ...presign, swap: { id: 's1' } }));
+    }) as typeof fetch,
+  });
+
+  it('prepares with GET and the query, stores with POST and the signed levels', async () => {
+    sent.length = 0;
+    await client.buildPresign('s1', 'b', { kind: 'refund' });
+    const level = { feeSats: 300, psbtBase64: presign.levels[0]!.psbtBase64, signaturesHex: ['30'.repeat(36)] };
+    const swap = await client.storePresign('s1', 'b', { kind: 'refund', toAddress: presign.toAddress, levels: [level] });
+    expect(sent[0]).toMatchObject({ url: 'https://api.example/v1/swaps/s1/legs/b/presign?kind=refund', method: 'GET', body: undefined });
+    expect(sent[1]).toMatchObject({ url: 'https://api.example/v1/swaps/s1/legs/b/presign', method: 'POST' });
+    expect(JSON.parse(sent[1]!.body!)).toEqual({ kind: 'refund', toAddress: presign.toAddress, levels: [level] });
+    expect(swap).toEqual({ id: 's1' });
+  });
+
+  it('sends a Bitcoin `to` and `escrow` only when given', async () => {
+    sent.length = 0;
+    await client.buildRefund('s1', 'a');
+    await client.buildRefund('s1', 'a', { to: 'tb1qx', escrow: 'tb1qold' });
+    await client.buildClaim('s1', 'a', 'bb'.repeat(32));
+    expect(sent.map((r) => r.body)).toEqual([undefined, '{"to":"tb1qx"}', JSON.stringify({ secret: 'bb'.repeat(32) })]);
+    expect(sent.map((r) => r.url.split('/legs/')[1])).toEqual(['a/refund', 'a/refund?escrow=tb1qold', 'a/claim']);
   });
 });

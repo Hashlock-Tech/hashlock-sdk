@@ -33,11 +33,13 @@ class HashlockClient:
 
     # ── core ───────────────────────────────────────────────────────────────────
     def me(self) -> dict[str, Any]:
-        """Verify the key and see its scopes."""
+        """Verify the key and see its scopes, the account name (``handle``, ``handlePublic``) and ``wallets``
+        (per family: ``{"login": ..., "proven": [...]}``)."""
         return self._request("GET", "/me")
 
     def assets(self) -> list[dict[str, Any]]:
-        """The asset registry (chain, token|native, decimals, symbol)."""
+        """The asset registry (chain, token|native, decimals, symbol). ``logoAt`` (null = no logo) and ``logoAnimated``
+        describe a fetched logo, served on the web host: ``https://hashlock.markets/api/assets/{id}/logo?v=<logoAt as epoch ms>``."""
         return self._request("GET", "/assets")["assets"]
 
     # ── RFQs ─────────────────────────────────────────────────────────────────────
@@ -82,18 +84,22 @@ class HashlockClient:
         return self._request("POST", "/rfqs", json={k: v for k, v in body.items() if v is not None}, idempotency_key=idempotency_key)["rfq"]
 
     def quote_rfq(self, rfq_id: str, quote_amount: str, idempotency_key: Optional[str] = None) -> dict[str, Any]:
-        """Quote an RFQ (requires the ``maker`` scope) — opens a settlement thread. The quote is the maker's acceptance
-        of that price; if the returned thread shows ``makerAccepted: False`` the maker is the initiator and accepts
-        right away with :meth:`accept_terms` and its hashlock."""
+        """Quote an RFQ (requires the ``maker`` scope) — opens a settlement thread. ``quote_amount`` keeps at most 8
+        decimals of its asset (fewer if it has fewer). The quote is the maker's acceptance of that price; if the
+        returned thread shows ``makerAccepted: False`` the maker is the initiator and accepts right away with
+        :meth:`accept_terms` and its hashlock."""
         return self._request("POST", f"/rfqs/{rfq_id}/quotes", json={"quoteAmount": quote_amount}, idempotency_key=idempotency_key)
 
     # ── negotiation thread ───────────────────────────────────────────────────────
     def get_thread(self, thread_id: str) -> dict[str, Any]:
+        """``{"thread", "rfq", "messages", "swap"}``; the thread carries ``counterpartyName`` (null unless they show it)."""
         return self._request("GET", f"/threads/{thread_id}")
 
     def propose_terms(self, thread_id: str, quote_amount: str, hashlock: Optional[str] = None) -> dict[str, Any]:
-        """Counter with a new price — proposing it is agreeing to it. The initiator agrees only with its ``hashlock``
-        (the same one it uses on every accept in this thread); the API ignores it from the other side."""
+        """Counter with a new price (at most 8 decimals of its asset) — proposing it is agreeing to it, so it is
+        refused when you cannot fund your own leg at that price (see :meth:`accept_terms`). The initiator agrees only
+        with its ``hashlock`` (the same one it uses on every accept in this thread); the API ignores it from the other
+        side."""
         body: dict[str, Any] = {"quoteAmount": quote_amount}
         if hashlock:
             body["hashlock"] = hashlock
@@ -103,7 +109,8 @@ class HashlockClient:
         self, thread_id: str, quote_amount: str, accept: bool = False, hashlock: Optional[str] = None
     ) -> dict[str, Any]:
         """Accept the counterparty's pending price. ``quote_amount`` is the ``pendingAmount`` you read from
-        :meth:`get_thread`; the server refuses if a newer counter has replaced it. With ``accept=True`` it also
+        :meth:`get_thread`; the server refuses if a newer counter has replaced it, or if you cannot fund your own leg
+        at that price (see :meth:`accept_terms`). With ``accept=True`` it also
         accepts the deal at that price in the same server transaction, so only the counterparty's
         :meth:`accept_terms` is left; the initiator then passes ``hashlock`` here (refused without ``accept``)."""
         if hashlock and not accept:
@@ -125,7 +132,9 @@ class HashlockClient:
         """Accept the current terms. When BOTH sides accept, the swap is created. ``quote_amount`` is the
         ``currentQuoteAmount`` you read from :meth:`get_thread` — refused if the price moved since. The
         initiator (funds the long leg) MUST also pass ``hashlock`` = sha256(secret) — see
-        :func:`hashlock.secret.new_secret`."""
+        :func:`hashlock.secret.new_secret`. Refused ("Not enough X to fund this: … Top up first.") when your wallet
+        cannot fund your own leg at that price: the amount, the protocol fee if you are the taker, and the chain's
+        coin reserve when the leg is that coin."""
         body: dict[str, Any] = {"quoteAmount": quote_amount}
         if hashlock:
             body["hashlock"] = hashlock
@@ -140,10 +149,17 @@ class HashlockClient:
         yield from self._paginate(self.list_swaps, params)
 
     def get_swap(self, swap_id: str) -> dict[str, Any]:
+        """The swap. Bitcoin legs carry ``aClaimTo``/``bClaimTo`` and ``aFundOutpoints``/``bFundOutpoints``
+        (``[{"txid", "vout", "value"}]``, the outputs a claim or refund spends)."""
         return self._request("GET", f"/swaps/{swap_id}")["swap"]
 
     def set_swap_address(self, swap_id: str, chain: str, address: str, leg: Optional[str] = None) -> dict[str, Any]:
-        """Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex).
+        """Set your receive (payout) / refund address for a leg. Bitcoin: the compressed pubkey (hex) — or, as
+        the leg's receiver, a Bitcoin ADDRESS, which sets where your claim pays (``aClaimTo`` / ``bClaimTo``; the
+        escrow stays on your key) and is accepted only while no leg is funded. Over an API key, an address that
+        receives money must be a wallet this account signed in with, or one proven with the login wallet's
+        authorisation or from a web wallet session — a key-only proof does not count. A payout change is refused
+        (409) while the other side's funding of the leg that pays you is on its way.
 
         When both legs are on the same chain, pass ``leg`` ("a" or "b") — the maker funds leg a and
         receives on leg b, the taker the reverse; the API refuses the call without it then.
@@ -165,13 +181,42 @@ class HashlockClient:
     #   solana-tx    Solana   transactionBase64 — sign with the funder key (the recipient's on a
     #                         claim); the blockhash lasts about a minute
     def build_fund(self, swap_id: str, leg: str) -> dict[str, Any]:
+        """A Solana funding the wallet cannot cover (amount, fee, rent) is refused (400) with the reason, before anyone signs."""
         return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/fund")
 
-    def build_claim(self, swap_id: str, leg: str, secret: str) -> dict[str, Any]:
-        return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/claim", json={"secret": secret})
+    def build_claim(self, swap_id: str, leg: str, secret: str, to: Optional[str] = None) -> dict[str, Any]:
+        """Sends the secret. On every chain but Bitcoin a claim closes at the leg's timelock, and the initiator's is
+        refused (409) from 10 minutes before it — unless the secret is already out, when it is still built. Bitcoin: ``to`` is where the claim
+        pays — default the leg's ``claimTo``, and any other address is refused (409) while one is set."""
+        body: dict[str, Any] = {"secret": secret}
+        if to:
+            body["to"] = to
+        return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/claim", json=body)
 
-    def build_refund(self, swap_id: str, leg: str) -> dict[str, Any]:
-        return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/refund")
+    def build_refund(self, swap_id: str, leg: str, to: Optional[str] = None, escrow: Optional[str] = None) -> dict[str, Any]:
+        """Only after the leg's timelock. Bitcoin: ``to`` is where the refund pays — default the refund key's P2WPKH;
+        ``escrow`` refunds an escrow this leg moved off (after a pubkey correction) instead of its current one."""
+        params = {"escrow": escrow} if escrow else None
+        return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/refund", params=params, json={"to": to} if to else None)
+
+    def build_presign(self, swap_id: str, leg: str, kind: Optional[str] = None, to: Optional[str] = None) -> dict[str, Any]:
+        """Bitcoin leg: its claim (``kind="claim"``, the default — the leg's receiver, once the escrow is recorded) or
+        the initiator's refund (``kind="refund"``, its funder) to PRE-SIGN, at up to three fee levels.
+
+        Answers ``{kind, toAddress, signerPubkeyHex, inputs, levels: [{feeSats, psbtBase64, sighashHexes}]}``. A
+        sighash does not cover the witness, so a claim is signed without the secret: sign every ``sighashHexes``
+        entry of each level with ``signerPubkeyHex``'s key and pass them to :meth:`store_presign`. The keeper
+        broadcasts the level the fee market needs — a claim once the secret is revealed, a refund once the deal
+        cannot complete and the median time past is beyond the timelock. ``to`` as in :meth:`build_claim` /
+        :meth:`build_refund`.
+        """
+        return self._request("GET", f"/swaps/{swap_id}/legs/{leg}/presign", params=_camel({"kind": kind, "to": to}))
+
+    def store_presign(self, swap_id: str, leg: str, kind: str, to_address: str, levels: list[dict[str, Any]]) -> dict[str, Any]:
+        """Store the signed levels from :meth:`build_presign` — ``[{"feeSats", "psbtBase64", "signaturesHex": [...]}]``,
+        one signature per input, in order. Each is verified against the escrow and the script's key; returns the swap."""
+        body = {"kind": kind, "toAddress": to_address, "levels": levels}
+        return self._request("POST", f"/swaps/{swap_id}/legs/{leg}/presign", json=body)["swap"]
 
     def broadcast(self, chain: str, signed: Any, idempotency_key: Optional[str] = None) -> dict[str, Any]:
         """Relay a transaction you signed yourself.

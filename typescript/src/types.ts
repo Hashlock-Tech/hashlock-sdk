@@ -9,6 +9,12 @@ export type LegKey = 'a' | 'b';
 export interface Me {
   userId: string;
   scopes: Scope[];
+  /** The account name, set in the app (Account › Profile). */
+  handle: string | null;
+  /** Whether the other side of a deal sees `handle`. */
+  handlePublic: boolean;
+  /** Per chain family: the address this account signed in with (where it is paid), and the addresses proven by signature. */
+  wallets: Record<'evm' | 'tron' | 'bitcoin' | 'solana', { login: string | null; proven: string[] }>;
 }
 
 export interface Asset {
@@ -19,6 +25,10 @@ export interface Asset {
   address: string | null; // token contract; null = native coin
   isNative?: boolean;
   enabled?: boolean;
+  /** When Hashlock fetched the token's logo (null = none); the image is on the web host, not the API host:
+   *  `https://hashlock.markets/api/assets/{id}/logo?v=<this as epoch ms>`. */
+  logoAt?: string | null;
+  logoAnimated?: boolean;
 }
 
 export interface Rfq {
@@ -58,13 +68,24 @@ export interface Thread {
   pendingBy?: string | null;
   takerAccepted?: boolean;
   makerAccepted?: boolean;
+  /** The other party's account name when they show it, else null. Carried by {@link HashlockClient.getThread}. */
+  counterpartyName?: string | null;
   updatedAt?: string;
+}
+
+/** A Bitcoin escrow output: what a claim or refund spends. `value` in sats. */
+export interface FundOutpoint {
+  txid: string;
+  vout: number;
+  value: number;
 }
 
 export interface Swap {
   id: string;
   threadId: string;
-  status: string; // agreed → initiator_funded → counterparty_funded → initiator_claimed → counterparty_claimed | refunded
+  // agreed → initiator_funded → counterparty_funded → initiator_claimed → counterparty_claimed; or refunding → refunded,
+  // half_settled (one leg claimed, the other refunded), expired, failed
+  status: string;
   hashlock: string;
   makerId: string;
   takerId: string;
@@ -77,9 +98,13 @@ export interface Swap {
   aHtlcAddress?: string | null;
   aRedeemScript?: string | null;
   aPayoutAddress?: string | null;
+  /** Bitcoin: where this leg's claim pays — the receiver's wallet unless they named another address. */
+  aClaimTo?: string | null;
   aRefundAddress?: string | null;
   aTimelock: string;
   aFundTx?: string | null;
+  /** Bitcoin: the funding outputs a claim or refund spends. */
+  aFundOutpoints?: FundOutpoint[] | null;
   aClaimTx?: string | null;
   bChain: string;
   bAssetId: string;
@@ -87,9 +112,13 @@ export interface Swap {
   bHtlcAddress?: string | null;
   bRedeemScript?: string | null;
   bPayoutAddress?: string | null;
+  /** Bitcoin: where this leg's claim pays — the receiver's wallet unless they named another address. */
+  bClaimTo?: string | null;
   bRefundAddress?: string | null;
   bTimelock: string;
   bFundTx?: string | null;
+  /** Bitcoin: the funding outputs a claim or refund spends. */
+  bFundOutpoints?: FundOutpoint[] | null;
   bClaimTx?: string | null;
 }
 
@@ -186,6 +215,35 @@ export interface SolanaBuild {
   note?: string;
 }
 export type SettlementBuild = EvmBuild | BtcPaymentBuild | BtcSighashBuild | SolanaBuild | TronBuild;
+
+/**
+ * A Bitcoin leg's spend to PRE-SIGN ({@link HashlockClient.buildPresign}): the leg's receiver signs its claim, the
+ * initiator its own leg's refund. A sighash does not cover the witness, so a claim is signed without the secret.
+ * Sign every `sighashHexes` entry of each level with `signerPubkeyHex`'s key and send them back with
+ * {@link HashlockClient.storePresign}; the keeper broadcasts the level the fee market needs — a claim once the secret
+ * is revealed, a refund once the deal cannot complete and the median time past is beyond the timelock.
+ */
+export interface BtcPresignBuild {
+  chain: string;
+  family: 'bitcoin';
+  sign: 'btc-sighash';
+  kind: 'claim' | 'refund';
+  toAddress: string;
+  /** The key that signs this branch. */
+  signerPubkeyHex: string;
+  /** Claim only — the same key as `signerPubkeyHex`. */
+  receiverPubkeyHex?: string;
+  /** The escrow outputs every level spends. */
+  inputs: FundOutpoint[];
+  /** Up to three fee levels, each its own PSBT. */
+  levels: Array<{ feeSats: number; psbtBase64: string; sighashHexes: string[] }>;
+}
+/** The signed levels for {@link HashlockClient.storePresign}: one signature per input, in order. */
+export interface BtcPresignInput {
+  kind: 'claim' | 'refund';
+  toAddress: string;
+  levels: Array<{ feeSats: number; psbtBase64: string; signaturesHex: string[] }>;
+}
 
 export interface Webhook {
   id: string;
