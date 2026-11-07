@@ -5,8 +5,8 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
 
 📖 **Documentation:** [docs.hashlock.markets](https://docs.hashlock.markets) — concepts, quickstart, guides and the API reference. For agents: [`llms.txt`](https://docs.hashlock.markets/llms.txt) (index), [`llms-full.txt`](https://docs.hashlock.markets/llms-full.txt) (everything in one file), any page as Markdown by adding `.md`, and a docs-search MCP server at `https://docs.hashlock.markets/mcp`.
 
-> **0.x release.** The SDK defaults to the production API (`api.hashlock.markets`); pass `baseUrl` to
-> target another deployment. The API surface may still change before the stable `1.0` release.
+> **Stable (1.x).** The SDK defaults to the production API (`api.hashlock.markets`); pass `baseUrl` to
+> target another deployment. Breaking changes come only with a new major version.
 
 - **Non-custodial.** Settlement endpoints return *unsigned* transactions. You sign with your own key or
   HSM; the server never holds your keys.

@@ -4,8 +4,8 @@ TypeScript SDK for the [Hashlock Markets](https://github.com/Hashlock-Tech/hashl
 non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON/Solana). Runs on Node 18+, browsers, and edge runtimes
 (native `fetch` / `WebSocket`, zero runtime dependencies).
 
-> **0.x release** — defaults to the production API `api.hashlock.markets`; set the base URL to target
-> another deployment. The API may change before the stable `1.0`.
+> **Stable (1.x)** — defaults to the production API `api.hashlock.markets`; set the base URL to target
+> another deployment. Breaking changes come only with a new major version.
 
 ```bash
 npm i @hashlock-tech/sdk
