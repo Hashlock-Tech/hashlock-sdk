@@ -12,6 +12,7 @@ import httpx
 from .errors import HashlockError
 
 DEFAULT_BASE = "https://api.hashlock.markets/v1"
+_UNSET: Any = object()  # "not given", where None is a value of its own (set_profile: handle=None removes the username)
 
 
 class HashlockClient:
@@ -36,6 +37,24 @@ class HashlockClient:
         """Verify the key and see its scopes, the account name (``handle``, ``handlePublic``) and ``wallets``
         (per family: ``{"login": ..., "proven": [...]}``)."""
         return self._request("GET", "/me")
+
+    def set_profile(self, *, handle: Any = _UNSET, handle_public: Optional[bool] = None, idempotency_key: Optional[str] = None) -> dict[str, Any]:
+        """Set the account's username and/or whether the accounts it trades with see it (``taker`` or ``maker`` scope).
+
+        Keyword-only, either or both: ``handle="my_desk"`` sets the username (3 to 24 characters: a-z, digits and
+        ``_``, stored in lowercase), ``handle=None`` removes it; ``handle_public=True`` makes the account public,
+        ``handle_public=False`` anonymous. An account is anonymous until it goes public. While it is public, every
+        account it has a thread with, past deals included, sees the username and, beside it, the account's record
+        over all its swaps. Removing the username also makes the account anonymous and frees the name. A taken
+        username is refused with 409; a username can be set ten times an hour, attempts refused as taken included (429).
+        Returns ``{"handle": ..., "handlePublic": ...}`` as they now stand.
+        """
+        body: dict[str, Any] = {}
+        if handle is not _UNSET:
+            body["handle"] = handle
+        if handle_public is not None:
+            body["handlePublic"] = handle_public
+        return self._request("PATCH", "/me/profile", json=body, idempotency_key=idempotency_key)
 
     def assets(self) -> list[dict[str, Any]]:
         """The asset registry (chain, token|native, decimals, symbol). ``logoAt`` (null = no logo) and ``logoAnimated``

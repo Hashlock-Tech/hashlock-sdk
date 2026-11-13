@@ -152,6 +152,9 @@ free-option/griefing risk.
 - **Payout addresses:** an address that receives money must be a wallet the account signed in with, or
   proved from a signed-in web session. A proof made with the API key (`POST /v1/wallets/<chain>`) widens
   what you can trade but does not count — a leaked key cannot redirect your money.
+- **Account:** `me()`; `setProfile()` / `set_profile()` — the username and whether the accounts you trade with see
+  it and your record. An account is anonymous until it goes public
+  ([Account visibility](https://docs.hashlock.markets/concepts/account-visibility)).
 - **Market:** `assets()`, `listRfqs()` / `rfqs()` (cursor-paginated), `getRfq()`, `createRfq()`, `quoteRfq()`.
 - **Negotiation:** `getThread()`, `proposeTerms()`, `acceptProposal()`, `acceptTerms()`.
 - **Swaps:** `listSwaps()` / `swaps()`, `getSwap()`, `setSwapAddress()`.

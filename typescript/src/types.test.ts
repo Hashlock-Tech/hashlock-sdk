@@ -129,3 +129,23 @@ describe('presign', () => {
     expect(sent.map((r) => r.url.split('/legs/')[1])).toEqual(['a/refund', 'a/refund?escrow=tb1qold', 'a/claim']);
   });
 });
+
+describe('setProfile', () => {
+  it('PATCHes /me/profile with exactly what was given — a null handle is sent, an absent one is not', async () => {
+    const sent: Array<{ url: string; method: string; body: string; key: string | null }> = [];
+    const client = new HashlockClient({
+      apiKey: 'hk_test_x',
+      baseUrl: 'https://api.example/v1',
+      fetch: (async (url: string, init: RequestInit) => {
+        sent.push({ url, method: init.method!, body: init.body as string, key: new Headers(init.headers).get('idempotency-key') });
+        return new Response(JSON.stringify({ handle: 'my_desk', handlePublic: true }));
+      }) as typeof fetch,
+    });
+    expect(await client.setProfile({ handle: 'my_desk', handlePublic: true }, 'k1')).toEqual({ handle: 'my_desk', handlePublic: true });
+    await client.setProfile({ handle: null });
+    await client.setProfile({ handlePublic: false });
+    expect(sent.map((s) => `${s.method} ${s.url}`)).toEqual(Array(3).fill('PATCH https://api.example/v1/me/profile'));
+    expect(sent.map((s) => JSON.parse(s.body))).toEqual([{ handle: 'my_desk', handlePublic: true }, { handle: null }, { handlePublic: false }]);
+    expect(sent[0]!.key).toBe('k1');
+  });
+});

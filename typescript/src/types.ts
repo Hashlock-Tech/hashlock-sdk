@@ -9,9 +9,9 @@ export type LegKey = 'a' | 'b';
 export interface Me {
   userId: string;
   scopes: Scope[];
-  /** The account name, set in the app (Account › Profile). */
+  /** The account's username — `setProfile`, or Account › Profile in the app. Null = none. */
   handle: string | null;
-  /** Whether the other side of a deal sees `handle`. */
+  /** Whether the other side of a deal sees `handle`, and the account's record beside it. */
   handlePublic: boolean;
   /** Per chain family: the address this account signed in with (where it is paid), and the addresses proven by signature. */
   wallets: Record<'evm' | 'tron' | 'bitcoin' | 'solana', { login: string | null; proven: string[] }>;

@@ -57,6 +57,18 @@ export class HashlockClient {
   me(): Promise<Me> {
     return this.request<Me>('/me');
   }
+  /**
+   * Set the account's username (`handle`) and/or whether the accounts it trades with see it (`handlePublic`); needs the
+   * `taker` or `maker` scope. An account is anonymous until `handlePublic` is true. While it is public, every account it
+   * has a thread with — past deals included — sees the username and, beside it, the account's record over all its swaps.
+   * `handlePublic: false` hides both again and keeps the username; `handle: null` removes it, makes the account
+   * anonymous and frees the name. A username is 3 to 24 characters (a–z, digits, `_`), stored in lowercase; a taken one
+   * is refused with 409, and it can be set ten times an hour, attempts refused as taken included (429). Returns the two
+   * fields as they now stand.
+   */
+  setProfile(patch: { handle?: string | null; handlePublic?: boolean }, idempotencyKey?: string): Promise<Pick<Me, 'handle' | 'handlePublic'>> {
+    return this.request('/me/profile', { method: 'PATCH', body: patch, idempotencyKey });
+  }
   /** The asset registry (chain, token|native, decimals, symbol). */
   async assets(): Promise<Asset[]> {
     return (await this.request<{ assets: Asset[] }>('/assets')).assets;
