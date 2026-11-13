@@ -29,6 +29,14 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
   10^(decimals − min(decimals, 8)). The API refuses more with "a price has at most N decimals" (N is 8, or the asset's own count when it has fewer), so round a computed price down.
   Accepting a price already on the table is not affected. No SDK change is needed.
 
+## New in 1.1.0
+
+- **Account name and visibility.** `setProfile({ handle?, handlePublic? })` / `set_profile(handle=..., handle_public=...)`
+  (`PATCH /v1/me/profile`) sets the username and whether the accounts you trade with see it and your track record.
+  An account is anonymous until `handlePublic` is true; `handle: null` / `handle=None` removes the username and makes
+  the account anonymous. See
+  [Account visibility](https://docs.hashlock.markets/concepts/account-visibility).
+
 ## New in 1.0.0 (since 0.7.0)
 
 - **Bitcoin pre-signed claim and refund.** `buildPresign(swapId, leg, { kind?, to? })` / `build_presign(...)` returns
