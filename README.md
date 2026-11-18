@@ -29,6 +29,15 @@ cross-chain atomic swaps (**BTC ↔ EVM / TRON / Solana**) over sealed RFQ + HTL
   10^(decimals − min(decimals, 8)). The API refuses more with "a price has at most N decimals" (N is 8, or the asset's own count when it has fewer), so round a computed price down.
   Accepting a price already on the table is not affected. No SDK change is needed.
 
+## New in 1.2.0
+
+- **`dealUrl` on every thread and swap.** The deal's page on the web app (`Thread.dealUrl`, `Swap.dealUrl`; Python: the
+  `dealUrl` key). Hand it to a person who trades through an assistant without a wallet: they accept as the initiator
+  there (the browser makes and keeps the secret), fund, claim and refund.
+- **Webhooks are the account's.** A webhook outlives the key that registered it (rotate keys without re-registering);
+  the account holder sees every webhook on the Developers page and can delete it there. A maker WebSocket is closed
+  within a minute of its key being revoked or expiring.
+
 ## New in 1.1.0
 
 - **Account name and visibility.** `setProfile({ handle?, handlePublic? })` / `set_profile(handle=..., handle_public=...)`

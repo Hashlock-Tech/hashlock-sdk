@@ -111,7 +111,9 @@ class HashlockClient:
 
     # ── negotiation thread ───────────────────────────────────────────────────────
     def get_thread(self, thread_id: str) -> dict[str, Any]:
-        """``{"thread", "rfq", "messages", "swap"}``; the thread carries ``counterpartyName`` (null unless they show it)."""
+        """``{"thread", "rfq", "messages", "swap"}``; the thread carries ``counterpartyName`` (null unless they show it)
+        and, like the swap, ``dealUrl`` — the deal's page on the web app, where a person accepts as the initiator, funds,
+        claims and refunds."""
         return self._request("GET", f"/threads/{thread_id}")
 
     def propose_terms(self, thread_id: str, quote_amount: str, hashlock: Optional[str] = None) -> dict[str, Any]:

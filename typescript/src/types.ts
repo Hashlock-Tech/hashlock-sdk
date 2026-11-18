@@ -70,6 +70,8 @@ export interface Thread {
   makerAccepted?: boolean;
   /** The other party's account name when they show it, else null. Carried by {@link HashlockClient.getThread}. */
   counterpartyName?: string | null;
+  /** The deal's page on the web app — where a person accepts as the initiator (the browser makes and keeps the secret), funds, claims and refunds. */
+  dealUrl?: string;
   updatedAt?: string;
 }
 
@@ -120,6 +122,8 @@ export interface Swap {
   /** Bitcoin: the funding outputs a claim or refund spends. */
   bFundOutpoints?: FundOutpoint[] | null;
   bClaimTx?: string | null;
+  /** The deal's page on the web app — where a person accepts as the initiator (the browser makes and keeps the secret), funds, claims and refunds. */
+  dealUrl?: string;
 }
 
 /** A page of results plus the opaque cursor for the next page (null = last page). */
