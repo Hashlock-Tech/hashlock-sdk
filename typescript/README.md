@@ -6,6 +6,9 @@ non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON/Solana). Runs on Node 1
 
 > **Stable (1.x)** — defaults to the production API `api.hashlock.markets`; set the base URL to target
 > another deployment. Breaking changes come only with a new major version.
+>
+> To test with test coins, use the testnet sandbox: `baseUrl: 'https://api-sandbox.hashlock.markets/v1'`, with a
+> key made on the sandbox ([Sandbox](https://docs.hashlock.markets/sandbox)).
 
 ```bash
 npm i @hashlock-tech/sdk

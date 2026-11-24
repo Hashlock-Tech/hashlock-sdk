@@ -5,6 +5,9 @@ non-custodial cross-chain atomic swaps (BTC ↔ EVM/TRON/Solana). Python 3.9+, b
 
 > **Stable (1.x)** — defaults to the production API `api.hashlock.markets`; set the base URL to target
 > another deployment. Breaking changes come only with a new major version.
+>
+> To test with test coins, use the testnet sandbox: `base_url="https://api-sandbox.hashlock.markets/v1"`, with a
+> key made on the sandbox ([Sandbox](https://docs.hashlock.markets/sandbox)).
 
 ```bash
 pip install hashlock-sdk          # add [ws] for the maker WebSocket feed: hashlock-sdk[ws]

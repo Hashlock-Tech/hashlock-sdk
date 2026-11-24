@@ -141,6 +141,26 @@ See [`examples/quickstart.ts`](./examples/quickstart.ts) for the full lifecycle,
 [`examples/fireblocks`](./examples/fireblocks) for signing the unsigned transactions with a custody
 provider.
 
+## Sandbox (testnets)
+
+To test with test coins first, point the client at the sandbox. It runs each production release, with the same
+API, on testnets: Ethereum Sepolia, Base Sepolia, Robinhood Chain testnet, TRON Nile, Solana devnet and Bitcoin
+signet. Production stays the default.
+
+```ts
+const SANDBOX = 'https://api-sandbox.hashlock.markets/v1';
+const client = new HashlockClient({ apiKey, baseUrl: SANDBOX });
+const feed = new MakerFeed({ apiKey, baseUrl: SANDBOX, onRfq });
+```
+
+Python: `HashlockClient(api_key, base_url="https://api-sandbox.hashlock.markets/v1")`, and the same `base_url` for
+`maker_feed`. The quickstart examples read it from `HASHLOCK_API_URL`.
+
+The sandbox has its own accounts and API keys. Create one at
+[sandbox.hashlock.markets/developers](https://sandbox.hashlock.markets/developers), or with a wallet signature
+against the sandbox API. A production key does not work there, and a sandbox key does not work on production.
+More in the docs: [Sandbox](https://docs.hashlock.markets/sandbox).
+
 ## How a swap works
 
 1. **RFQ → quote → accept.** A taker posts an RFQ; a maker quotes it (opening a negotiation thread) — the

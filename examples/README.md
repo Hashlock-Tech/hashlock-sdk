@@ -6,4 +6,5 @@
   (Fireblocks / Copper). Documented pattern, not a runnable integration test.
 
 All examples target the production API (`https://api.hashlock.markets/v1`) by default. Set
-`HASHLOCK_API_KEY` (and `HASHLOCK_API_URL` to point at another environment).
+`HASHLOCK_API_KEY` (and `HASHLOCK_API_URL` to point at another environment). The testnet sandbox is
+`https://api-sandbox.hashlock.markets/v1`, with keys of its own.
